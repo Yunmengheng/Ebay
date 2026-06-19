@@ -1,0 +1,21 @@
+{
+  "name": "ebay-message-monitor-pro",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "dashboard"
+  ],
+  "scripts": {
+    "dev": "concurrently -n backend,dashboard -c green,blue \"npm --prefix backend run dev\" \"npm --prefix dashboard run dev\"",
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:dashboard": "npm --prefix dashboard run dev",
+    "build": "npm --prefix dashboard run build",
+    "start:backend": "npm --prefix backend run start",
+    "start:dashboard": "npm --prefix dashboard run start"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
+

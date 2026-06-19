@@ -1,0 +1,74 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - link "eBay Message Monitor Pro" [ref=e5] [cursor=pointer]:
+          - /url: /dashboard
+          - img [ref=e6]
+          - generic [ref=e9]: eBay Message Monitor Pro
+        - navigation [ref=e10]:
+          - link "Dashboard" [ref=e11] [cursor=pointer]:
+            - /url: /dashboard
+            - img [ref=e12]
+            - generic [ref=e14]: Dashboard
+          - link "Stores" [ref=e15] [cursor=pointer]:
+            - /url: /stores
+            - img [ref=e16]
+            - generic [ref=e21]: Stores
+          - link "Settings" [ref=e22] [cursor=pointer]:
+            - /url: /settings
+            - img [ref=e23]
+            - generic [ref=e26]: Settings
+    - main [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]:
+            - heading "Live inbox feed" [level=1] [ref=e31]
+            - paragraph [ref=e32]: WebSocket primary updates with Supabase Realtime sync.
+          - generic [ref=e33]:
+            - generic [ref=e34]:
+              - img [ref=e35]
+              - text: WS disconnected
+            - generic [ref=e37]:
+              - img [ref=e38]
+              - text: Supabase connecting
+        - generic [ref=e40]:
+          - generic [ref=e42]:
+            - generic [ref=e43]:
+              - generic [ref=e44]: Messages today
+              - generic [ref=e45]: "0"
+            - img [ref=e47]
+          - generic [ref=e51]:
+            - generic [ref=e52]:
+              - generic [ref=e53]: Most active store
+              - generic [ref=e54]: No activity yet
+            - img [ref=e56]
+          - generic [ref=e59]:
+            - generic [ref=e60]:
+              - generic [ref=e61]: Total unread
+              - generic [ref=e62]: "0"
+            - img [ref=e64]
+          - generic [ref=e71]:
+            - generic [ref=e72]:
+              - generic [ref=e73]: Stores online
+              - generic [ref=e74]: 0/0
+            - img [ref=e76]
+        - generic [ref=e81]:
+          - combobox "Filter by store" [ref=e82]:
+            - option "All stores" [selected]
+          - generic [ref=e83]:
+            - button "All" [ref=e84] [cursor=pointer]:
+              - img [ref=e85]
+              - text: All
+            - button "Unread" [ref=e88] [cursor=pointer]:
+              - img [ref=e89]
+              - text: Unread
+            - button "Archived" [ref=e92] [cursor=pointer]:
+              - img [ref=e93]
+              - text: Archived
+          - generic [ref=e96]:
+            - img
+            - textbox [ref=e97]:
+              - /placeholder: Search buyer or preview
+        - generic [ref=e99]: No messages match the current filters.
+  - alert [ref=e100]
