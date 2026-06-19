@@ -15,6 +15,23 @@ let socketVersion = 0;
 const getStorage = (keys) => chrome.storage.local.get(keys);
 const setStorage = (value) => chrome.storage.local.set(value);
 
+async function getNotifiedFingerprints() {
+  const data = await getStorage(['notifiedFingerprints']);
+  return data.notifiedFingerprints || {};
+}
+
+async function saveNotifiedFingerprints(map) {
+  const keys = Object.keys(map);
+  if (keys.length > 1000) {
+    const pruned = {};
+    keys.slice(-500).forEach((k) => {
+      pruned[k] = map[k];
+    });
+    map = pruned;
+  }
+  await setStorage({ notifiedFingerprints: map });
+}
+
 function normalizeWsUrl(value) {
   const candidate = String(value || '').trim();
   if (!candidate) return DEFAULT_WS_URL;
@@ -241,20 +258,43 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     if (message.type === 'NEW_MESSAGE') {
       const store = await ensureStore(message.storeName);
+      const isUnread = (message.unreadCount || 0) > 0;
+      const targetStatus = isUnread ? 'unread' : 'read';
+      const fingerprint = message.fingerprint;
+
+      const notifiedMap = await getNotifiedFingerprints();
+      const previousStatus = notifiedMap[fingerprint];
+
       const event = {
         type: 'NEW_MESSAGE',
         ...store,
         buyer: message.buyer,
         preview: message.preview,
-        unreadCount: message.unreadCount || 1,
-        fingerprint: message.fingerprint,
+        unreadCount: message.unreadCount !== undefined ? message.unreadCount : 1,
+        fingerprint: fingerprint,
         timestamp: Date.now()
       };
 
-      unreadCount += 1;
-      await setStorage({ unreadCount });
-      queueNotification(event);
-      sendSocket(event);
+      if (previousStatus === undefined) {
+        // Brand new message (never seen before)
+        notifiedMap[fingerprint] = targetStatus;
+        await saveNotifiedFingerprints(notifiedMap);
+
+        if (isUnread) {
+          unreadCount += 1;
+          await setStorage({ unreadCount });
+          queueNotification(event);
+        }
+        sendSocket(event);
+      } else if (previousStatus !== targetStatus) {
+        // Status changed (read -> unread or unread -> read)
+        notifiedMap[fingerprint] = targetStatus;
+        await saveNotifiedFingerprints(notifiedMap);
+
+        // Send update to backend/dashboard, but do NOT show a Chrome notification
+        sendSocket(event);
+      }
+
       sendResponse({ ok: true, status });
       return;
     }

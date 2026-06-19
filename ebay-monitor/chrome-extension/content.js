@@ -320,37 +320,29 @@
     let sentCount = 0;
     const rows = candidateRows();
 
-    let latestMessage = null;
-    let latestFingerprint = null;
-
     for (let i = 0; i < rows.length; i++) {
       const message = extractMessageFromRow(rows[i]);
       if (message) {
-        latestMessage = message;
-        latestFingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.preview);
-        break;
+        const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.preview);
+        const cacheKey = `${fingerprint}:${message.unreadCount}`;
+        if (!sentFingerprints.has(cacheKey)) {
+          const oppositeCount = message.unreadCount > 0 ? 0 : 1;
+          sentFingerprints.delete(`${fingerprint}:${oppositeCount}`);
+
+          sentFingerprints.add(cacheKey);
+          sentCount += 1;
+          chrome.runtime.sendMessage({
+            type: 'NEW_MESSAGE',
+            ...currentStore,
+            ...message,
+            fingerprint: fingerprint
+          });
+        }
       }
     }
 
-    if (latestMessage) {
-      const cacheKey = `${latestFingerprint}:${latestMessage.unreadCount}`;
-      if (!sentFingerprints.has(cacheKey)) {
-        const oppositeCount = latestMessage.unreadCount > 0 ? 0 : 1;
-        sentFingerprints.delete(`${latestFingerprint}:${oppositeCount}`);
-
-        sentFingerprints.add(cacheKey);
-        sentCount += 1;
-        chrome.runtime.sendMessage({
-          type: 'NEW_MESSAGE',
-          ...currentStore,
-          ...latestMessage,
-          fingerprint: latestFingerprint
-        });
-      }
-    }
-
-    if (sentFingerprints.size > 500) {
-      const keep = [...sentFingerprints].slice(-250);
+    if (sentFingerprints.size > 1000) {
+      const keep = [...sentFingerprints].slice(-500);
       sentFingerprints.clear();
       keep.forEach((value) => sentFingerprints.add(value));
     }
