@@ -11,7 +11,8 @@ type RealtimeContextValue = {
   toasts: Toast[];
   preferences: Preferences;
   wsStatus: 'connected' | 'connecting' | 'disconnected';
-  supabaseStatus: 'connected' | 'connecting' | 'disconnected';
+  supabaseStatus: 'connected' | 'connecting' | 'disconnected' | 'setup_required';
+  supabaseError: string | null;
   setPreferences: (preferences: Preferences) => void;
   dismissToast: (id: string) => void;
   updateMessageStatus: (id: string, status: Message['status']) => Promise<void>;
@@ -58,7 +59,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [wsStatus, setWsStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
   const [supabaseStatus, setSupabaseStatus] =
-    useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+    useState<'connected' | 'connecting' | 'disconnected' | 'setup_required'>('connecting');
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
   const [preferences, setPreferencesState] = useState<Preferences>(DEFAULT_PREFERENCES);
   const seenMessages = useRef(new Set<string>());
   const preferencesRef = useRef(preferences);
@@ -134,7 +136,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshData = useCallback(async () => {
-    const [{ data: messageData }, { data: storeData }] = await Promise.all([
+    const [{ data: messageData, error: messageError }, { data: storeData, error: storeError }] = await Promise.all([
       supabase
         .from('messages')
         .select('*, stores(name)')
@@ -143,6 +145,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       supabase.from('stores').select('*').order('last_seen', { ascending: false })
     ]);
 
+    const error = messageError || storeError;
+    if (error) {
+      const missingTable = error.code === '42P01' || error.message.toLowerCase().includes('could not find the table');
+      setSupabaseStatus(missingTable ? 'setup_required' : 'disconnected');
+      setSupabaseError(error.message);
+      return;
+    }
+
+    setSupabaseError(null);
     setMessages((messageData || []).map(normalizeMessage));
     setStores(storeData || []);
     (messageData || []).forEach((message) => seenMessages.current.add(message.id));
@@ -206,7 +217,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
       )
       .subscribe((status) => {
-        setSupabaseStatus(status === 'SUBSCRIBED' ? 'connected' : status === 'CLOSED' ? 'disconnected' : 'connecting');
+        if (status === 'SUBSCRIBED') {
+          setSupabaseStatus('connected');
+          setSupabaseError(null);
+          return;
+        }
+
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          setSupabaseStatus((current) => (current === 'setup_required' ? current : 'disconnected'));
+          return;
+        }
+
+        setSupabaseStatus((current) => (current === 'setup_required' ? current : 'connecting'));
       });
 
     const storeChannel = supabase
@@ -239,6 +261,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       preferences,
       wsStatus,
       supabaseStatus,
+      supabaseError,
       setPreferences,
       dismissToast,
       updateMessageStatus,
@@ -251,6 +274,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       preferences,
       wsStatus,
       supabaseStatus,
+      supabaseError,
       setPreferences,
       dismissToast,
       updateMessageStatus,
@@ -272,4 +296,3 @@ declare global {
     webkitAudioContext?: typeof AudioContext;
   }
 }
-

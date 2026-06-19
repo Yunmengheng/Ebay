@@ -10,13 +10,27 @@ let currentStore = null;
 let unreadCount = 0;
 let notificationQueue = [];
 let notificationTimer = null;
+let socketVersion = 0;
 
 const getStorage = (keys) => chrome.storage.local.get(keys);
 const setStorage = (value) => chrome.storage.local.set(value);
 
+function normalizeWsUrl(value) {
+  const candidate = String(value || '').trim();
+  if (!candidate) return DEFAULT_WS_URL;
+  if (!candidate.startsWith('ws://') && !candidate.startsWith('wss://')) {
+    return DEFAULT_WS_URL;
+  }
+  return candidate.replace(/\/$/, '');
+}
+
 async function getWsUrl() {
   const data = await getStorage(['wsUrl']);
-  return data.wsUrl || DEFAULT_WS_URL;
+  const wsUrl = normalizeWsUrl(data.wsUrl);
+  if (data.wsUrl && data.wsUrl !== wsUrl) {
+    await setStorage({ wsUrl });
+  }
+  return wsUrl;
 }
 
 function setStatus(nextStatus) {
@@ -35,17 +49,36 @@ function sendSocket(payload) {
 async function ensureStore(storeName) {
   const data = await getStorage(['storeId', 'storeName']);
   const storeId = data.storeId || crypto.randomUUID();
-  const resolvedName = storeName || data.storeName || 'Unknown eBay Store';
+  const incomingName = String(storeName || '').trim();
+  const shouldUseIncoming =
+    incomingName &&
+    incomingName !== 'Unknown eBay Store' &&
+    incomingName !== 'Open eBay messages';
+  const resolvedName = shouldUseIncoming ? incomingName : data.storeName || 'Unknown eBay Store';
   currentStore = { storeId, storeName: resolvedName };
   await setStorage(currentStore);
+  return currentStore;
+}
+
+async function renameStore(storeName) {
+  const cleanName = String(storeName || '').trim() || 'Unknown eBay Store';
+  const data = await getStorage(['storeId']);
+  const storeId = data.storeId || crypto.randomUUID();
+  currentStore = { storeId, storeName: cleanName };
+  await setStorage(currentStore);
+  sendSocket({ type: 'REGISTER_EXTENSION', ...currentStore, timestamp: Date.now() });
   return currentStore;
 }
 
 async function connect() {
   clearTimeout(reconnectTimer);
   clearInterval(heartbeatTimer);
+  const version = ++socketVersion;
 
   const wsUrl = await getWsUrl();
+  if (socket && socket.readyState !== WebSocket.CLOSED) {
+    socket.close();
+  }
   setStatus('connecting');
   socket = new WebSocket(`${wsUrl}?role=extension`);
 
@@ -64,11 +97,23 @@ async function connect() {
     }, 30000);
   });
 
-  socket.addEventListener('close', scheduleReconnect);
-  socket.addEventListener('error', scheduleReconnect);
+  socket.addEventListener('close', () => scheduleReconnect(version));
+  socket.addEventListener('error', () => scheduleReconnect(version));
 }
 
-function scheduleReconnect() {
+async function ensureConnectedNow() {
+  if (socket?.readyState === WebSocket.OPEN) {
+    setStatus('connected');
+    return;
+  }
+
+  reconnectAttempt = 0;
+  clearTimeout(reconnectTimer);
+  await connect();
+}
+
+function scheduleReconnect(version) {
+  if (version !== socketVersion) return;
   clearInterval(heartbeatTimer);
   setStatus('disconnected');
   const delay = Math.min(30000, 1000 * 2 ** reconnectAttempt);
@@ -108,6 +153,45 @@ function queueNotification(message) {
   }
 }
 
+function isEbayMessagesUrl(url = '') {
+  try {
+    const parsed = new URL(url);
+    const hostParts = parsed.hostname.split('.');
+    const isEbayHost = hostParts.includes('ebay');
+    return isEbayHost && (parsed.pathname.startsWith('/cnt/') || parsed.hostname === 'mesg.ebay.com');
+  } catch {
+    return false;
+  }
+}
+
+async function injectContentScript(tabId) {
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ['content.js']
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function scanActiveTab() {
+  await ensureConnectedNow();
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !isEbayMessagesUrl(tab.url)) {
+    return { ok: false, reason: 'Open an eBay messages tab first.' };
+  }
+
+  await injectContentScript(tab.id);
+
+  try {
+    return await chrome.tabs.sendMessage(tab.id, { type: 'FORCE_SCAN' });
+  } catch {
+    return { ok: false, reason: 'Could not reach the eBay page scanner. Refresh the eBay tab.' };
+  }
+}
+
 chrome.runtime.onInstalled.addListener(() => {
   connect();
 });
@@ -116,11 +200,36 @@ chrome.runtime.onStartup.addListener(() => {
   connect();
 });
 
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status === 'complete' && isEbayMessagesUrl(tab.url)) {
+    injectContentScript(tabId);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   (async () => {
+    if (message.type === 'SCAN_RESULT') {
+      unreadCount = message.sentCount || 0;
+      await setStorage({
+        lastScanAt: Date.now(),
+        lastScanCandidateCount: message.candidateCount || 0,
+        lastScanSentCount: message.sentCount || 0,
+        scannerActive: true,
+        unreadCount
+      });
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === 'STORE_DETECTED') {
       const store = await ensureStore(message.storeName);
       sendSocket({ type: 'REGISTER_EXTENSION', ...store, timestamp: Date.now() });
+      sendResponse({ ok: true, ...store, status });
+      return;
+    }
+
+    if (message.type === 'SET_STORE_NAME') {
+      const store = await renameStore(message.storeName);
       sendResponse({ ok: true, ...store, status });
       return;
     }
@@ -146,27 +255,62 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     }
 
     if (message.type === 'GET_POPUP_STATE') {
-      const data = await getStorage(['storeId', 'storeName', 'unreadCount', 'wsUrl']);
+      if (!socket || socket.readyState === WebSocket.CLOSED) {
+        ensureConnectedNow();
+      }
+      const data = await getStorage([
+        'storeId',
+        'storeName',
+        'unreadCount',
+        'wsUrl',
+        'lastScanAt',
+        'lastScanCandidateCount',
+        'lastScanSentCount',
+        'scannerActive'
+      ]);
       sendResponse({
         status,
         storeId: data.storeId,
         storeName: data.storeName,
         unreadCount: data.unreadCount || unreadCount,
-        wsUrl: data.wsUrl || DEFAULT_WS_URL
+        wsUrl: data.wsUrl || DEFAULT_WS_URL,
+        scannerActive: Boolean(data.scannerActive),
+        lastScanAt: data.lastScanAt || null,
+        lastScanCandidateCount: data.lastScanCandidateCount || 0,
+        lastScanSentCount: data.lastScanSentCount || 0
       });
       return;
     }
 
     if (message.type === 'SET_WS_URL') {
-      await setStorage({ wsUrl: message.wsUrl || DEFAULT_WS_URL });
+      const wsUrl = normalizeWsUrl(message.wsUrl);
+      await setStorage({ wsUrl });
       connect();
-      sendResponse({ ok: true });
+      sendResponse({ ok: true, wsUrl });
+      return;
+    }
+
+    if (message.type === 'RESET_WS_URL') {
+      await setStorage({ wsUrl: DEFAULT_WS_URL });
+      connect();
+      sendResponse({ ok: true, wsUrl: DEFAULT_WS_URL });
+      return;
+    }
+
+    if (message.type === 'RECONNECT_NOW') {
+      await ensureConnectedNow();
+      sendResponse({ ok: true, status });
       return;
     }
 
     if (message.type === 'OPEN_DASHBOARD') {
       chrome.tabs.create({ url: DASHBOARD_URL });
       sendResponse({ ok: true });
+      return;
+    }
+
+    if (message.type === 'FORCE_SCAN_ACTIVE_TAB') {
+      sendResponse(await scanActiveTab());
     }
   })();
 
@@ -174,4 +318,3 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 });
 
 connect();
-

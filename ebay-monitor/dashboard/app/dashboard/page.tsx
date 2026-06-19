@@ -9,7 +9,7 @@ import { ToastNotification } from '@/components/ToastNotification';
 import { useRealtime } from '@/components/RealtimeProvider';
 
 export default function DashboardPage() {
-  const { messages, stores, wsStatus, supabaseStatus } = useRealtime();
+  const { messages, stores, wsStatus, supabaseStatus, supabaseError } = useRealtime();
   const [storeId, setStoreId] = useState('all');
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
@@ -46,10 +46,20 @@ export default function DashboardPage() {
                 supabaseStatus === 'connected' ? 'text-success' : 'text-danger'
               }`}
             />
-            Supabase {supabaseStatus}
+            Supabase {supabaseStatus.replace('_', ' ')}
           </span>
         </div>
       </div>
+
+      {supabaseStatus === 'setup_required' && (
+        <section className="rounded-card border border-danger/40 bg-danger/10 p-4 text-sm text-red-100">
+          <div className="font-semibold text-white">Supabase tables are not ready yet.</div>
+          <p className="mt-1 text-red-100/80">
+            Run <span className="font-mono">supabase/migrations/001_init.sql</span> in your Supabase SQL editor, then
+            refresh this page. Current Supabase response: {supabaseError}
+          </p>
+        </section>
+      )}
 
       <StatsBar messages={messages} stores={stores} />
       <StoreFilter
@@ -82,4 +92,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

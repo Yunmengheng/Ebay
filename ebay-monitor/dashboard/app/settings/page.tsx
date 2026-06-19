@@ -33,7 +33,7 @@ function Toggle({
 }
 
 export default function SettingsPage() {
-  const { preferences, setPreferences, wsStatus, supabaseStatus } = useRealtime();
+  const { preferences, setPreferences, wsStatus, supabaseStatus, supabaseError } = useRealtime();
   const [draft, setDraft] = useState<Preferences>(preferences);
 
   useEffect(() => {
@@ -104,7 +104,8 @@ export default function SettingsPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-muted">
-            WebSocket: {wsStatus} · Supabase: {supabaseStatus}
+            WebSocket: {wsStatus} · Supabase: {supabaseStatus.replace('_', ' ')}
+            {supabaseError ? <span className="block pt-1 text-danger">{supabaseError}</span> : null}
           </div>
           <button
             onClick={save}
@@ -118,4 +119,3 @@ export default function SettingsPage() {
     </div>
   );
 }
-

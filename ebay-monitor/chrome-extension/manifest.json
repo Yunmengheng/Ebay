@@ -3,14 +3,22 @@
   "name": "eBay Message Monitor Pro",
   "version": "1.0.0",
   "description": "Monitors eBay inbox pages and streams new messages to the dashboard.",
-  "permissions": ["storage", "notifications", "tabs"],
-  "host_permissions": ["https://mesg.ebay.com/*", "https://*.ebay.com/*"],
+  "permissions": ["storage", "notifications", "tabs", "scripting"],
+  "host_permissions": [
+    "https://mesg.ebay.com/*",
+    "https://*.ebay.com/*",
+    "https://*.ebay.co.uk/*",
+    "https://*/cnt/*"
+  ],
   "background": {
     "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["https://mesg.ebay.com/*"],
+      "matches": [
+        "https://mesg.ebay.com/*",
+        "https://*/cnt/*"
+      ],
       "js": ["content.js"],
       "run_at": "document_idle"
     }
@@ -26,4 +34,3 @@
     "128": "icons/icon.svg"
   }
 }
-
