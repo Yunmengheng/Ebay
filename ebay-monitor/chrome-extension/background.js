@@ -50,11 +50,13 @@ async function ensureStore(storeName) {
   const data = await getStorage(['storeId', 'storeName']);
   const storeId = data.storeId || crypto.randomUUID();
   const incomingName = String(storeName || '').trim();
-  const shouldUseIncoming =
-    incomingName &&
-    incomingName !== 'Unknown eBay Store' &&
-    incomingName !== 'Open eBay messages';
-  const resolvedName = shouldUseIncoming ? incomingName : data.storeName || 'Unknown eBay Store';
+  // Always prefer the already-saved name so a manual rename via the popup
+  // is never overwritten by the auto-detected eBay username on page refresh.
+  const resolvedName = data.storeName || (
+    incomingName && incomingName !== 'Unknown eBay Store' && incomingName !== 'Open eBay messages'
+      ? incomingName
+      : 'Unknown eBay Store'
+  );
   currentStore = { storeId, storeName: resolvedName };
   await setStorage(currentStore);
   return currentStore;
@@ -66,7 +68,10 @@ async function renameStore(storeName) {
   const storeId = data.storeId || crypto.randomUUID();
   currentStore = { storeId, storeName: cleanName };
   await setStorage(currentStore);
+  // Send both REGISTER_EXTENSION and HEARTBEAT so the backend upserts
+  // the new name into Supabase immediately (which updates the dashboard).
   sendSocket({ type: 'REGISTER_EXTENSION', ...currentStore, timestamp: Date.now() });
+  sendSocket({ type: 'HEARTBEAT', ...currentStore, timestamp: Date.now() });
   return currentStore;
 }
 

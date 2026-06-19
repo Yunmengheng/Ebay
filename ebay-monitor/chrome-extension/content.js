@@ -66,7 +66,6 @@
   };
 
   let store = null;
-  let isActive = !document.hidden;
   const sentFingerprints = new Set();
 
   const rawText = (node) => (node?.innerText || node?.textContent || '').trim();
@@ -103,25 +102,42 @@
     return btoa(unescape(encodeURIComponent(`${storeId}:${buyer}:${preview}`)));
   }
 
-  function hasUnreadDot(row) {
-    const rowRect = row.getBoundingClientRect();
-    if (!rowRect.width || !rowRect.height) return false;
+  function isRowUnread(row) {
+    // 1. aria / class "unread" markers — most explicit signal.
+    if (
+      row.matches?.('[class*="unread" i], [aria-label*="unread" i]') ||
+      row.querySelector('[class*="unread" i], [aria-label*="unread" i]')
+    ) return true;
 
-    const nodes = row.querySelectorAll('*');
-    for (const node of nodes) {
-      const rect = node.getBoundingClientRect();
-      if (rect.width < 3 || rect.height < 3 || rect.width > 18 || rect.height > 18) continue;
+    // 2. Font-weight on the buyer/sender node specifically.
+    //    In eBay's new UI the buyer name is bold (700) when unread, normal (400) when read.
+    //    We skip generic `strong` and `b` since those are always bold by default.
+    const specificBuyerSelectors = [
+      '[data-testid*="sender" i]',
+      '[data-testid*="buyer" i]',
+      '[class*="sender" i]',
+      '[class*="buyer" i]',
+      'h3',
+      'h4'
+    ];
+    for (const sel of specificBuyerSelectors) {
+      const node = row.querySelector(sel);
+      if (node) {
+        const fw = parseInt(window.getComputedStyle(node).fontWeight, 10);
+        // Bold = unread, normal/light = read
+        return fw >= 600;
+      }
+    }
 
-      const style = window.getComputedStyle(node);
-      const color = `${style.backgroundColor} ${style.color} ${style.borderColor}`;
-      const looksBlue =
-        color.includes('0, 102, 255') ||
-        color.includes('0, 100, 210') ||
-        color.includes('25, 118, 210') ||
-        color.includes('59, 130, 246') ||
-        color.includes('rgb(0, 112, 224)');
-
-      if (looksBlue) return true;
+    // 3. Fallback: check font-weight of the very first non-empty inline text node
+    //    that is a direct child span/p of the row (not a nested container).
+    //    This avoids scanning every element and hitting icon/button elements.
+    for (const el of row.children) {
+      const t = (el.textContent || '').trim();
+      if (t.length > 2) {
+        const fw = parseInt(window.getComputedStyle(el).fontWeight, 10);
+        return fw >= 600;
+      }
     }
 
     return false;
@@ -131,11 +147,10 @@
     const unreadNode = firstMatch(row, SELECTORS.unread);
     const unreadText = text(unreadNode);
     const number = Number((unreadText.match(/\d+/) || [])[0] || 0);
-    const rowLooksUnread =
-      row.matches?.('[class*="unread" i], [aria-label*="unread" i]') ||
-      row.querySelector('[class*="unread" i], [aria-label*="unread" i]') ||
-      hasUnreadDot(row);
-    return Math.max(number, rowLooksUnread ? 1 : 0);
+    const rowUnread = isRowUnread(row);
+    // DEBUG — open eBay DevTools console (F12) to see what is detected
+    console.log('[EbayMonitor] isRowUnread:', rowUnread, '| row text snippet:', text(row).slice(0, 80));
+    return Math.max(number, rowUnread ? 1 : 0);
   }
 
   function cleanLine(line) {
@@ -161,36 +176,19 @@
     return /\b(free shipping|mini excavator|digger|crawler|engine|epa|attachment|forklift|rated capacity|ton|lbs|hp|gas|diesel|hydraulic|tracked|skid steer)\b/i.test(line);
   }
 
-  function messageFromEmphasis(row, buyer) {
-    const emphasized = [...row.querySelectorAll('strong, b, [style*="font-weight"]')]
-      .map((node) => cleanLine(rawText(node)))
-      .filter((line) => {
-        return (
-          line.length > 8 &&
-          line !== buyer &&
-          !looksLikeDateLine(line) &&
-          !looksLikeProductTitle(line)
-        );
-      });
-
-    return emphasized.at(-1) || '';
-  }
-
-  function messageFromLines(lines, buyer) {
+  function extractMessagePreview(lines, buyer) {
     const useful = lines.filter((line) => {
       return (
         line &&
-        line !== buyer &&
-        !looksLikeDateLine(line) &&
-        !looksLikeProductTitle(line)
+        line.toLowerCase() !== buyer.toLowerCase() &&
+        !looksLikeDateLine(line)
       );
     });
 
-    const conversational = useful.find((line) => {
-      return /\b(hi|hello|hey|dear|thanks|thank you|please|could|would|when|what|where|why|how|i('|’)m|i am|we|you|your|sir|madam)\b/i.test(line);
-    });
-
-    return conversational || useful.at(-1) || '';
+    if (useful.length === 0) return '';
+    const lastLine = useful[useful.length - 1];
+    // Clean up reply indicators (like ↶ or ↷) at the beginning of the message
+    return lastLine.replace(/^[↶↷]\s*/, '').trim();
   }
 
   function isTodayOrYesterday(rowText) {
@@ -259,28 +257,26 @@
   function extractMessageFromRow(row) {
     const rowText = text(row);
     if (!rowText || rowText.length < 8) return null;
-    if (/^(Inbox|From members|Unread from members|From eBay|Sent|Deleted|Archive|Folders)$/i.test(rowText)) {
+
+    // Skip pure navigation/folder rows (exact matches only)
+    if (/^(Inbox|From members|Unread from members|From eBay|Sent|Deleted|Archive|Folders|My Folder \d*|Get-back client|Create folder)$/i.test(rowText.trim())) {
       return null;
     }
-    if (!isTodayOrYesterday(rowText)) return null;
 
     const buyerNode = firstMatch(row, SELECTORS.buyer);
-    const previewNode = firstMatch(row, SELECTORS.preview);
     const lines = rowLines(row);
-    const buyer = text(buyerNode) || lines[0] || 'Unknown buyer';
-    const preview =
-      messageFromEmphasis(row, buyer) ||
-      messageFromLines(lines, buyer) ||
-      text(previewNode) ||
-      rowText.replace(buyer, '').trim().slice(0, 240);
-    const unreadCount = parseUnread(row);
+    const buyer = text(buyerNode) || lines[0] || '';
+    if (!buyer || buyer.length < 2) return null;
 
-    if (!buyer || !preview) return null;
+    const preview = extractMessagePreview(lines, buyer) || rowText.replace(buyer, '').trim().slice(0, 240);
+    if (!preview || preview.length < 2) return null;
+
+    const unreadCount = parseUnread(row);
 
     return {
       buyer: buyer.slice(0, 120),
       preview: preview.slice(0, 500),
-      unreadCount: Math.max(unreadCount, 1)
+      unreadCount
     };
   }
 
@@ -324,21 +320,33 @@
     let sentCount = 0;
     const rows = candidateRows();
 
-    for (const row of rows) {
-      const message = extractMessageFromRow(row);
-      if (!message) continue;
+    let latestMessage = null;
+    let latestFingerprint = null;
 
-      const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.preview);
-      if (sentFingerprints.has(fingerprint)) continue;
+    for (let i = 0; i < rows.length; i++) {
+      const message = extractMessageFromRow(rows[i]);
+      if (message) {
+        latestMessage = message;
+        latestFingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.preview);
+        break;
+      }
+    }
 
-      sentFingerprints.add(fingerprint);
-      sentCount += 1;
-      chrome.runtime.sendMessage({
-        type: 'NEW_MESSAGE',
-        ...currentStore,
-        ...message,
-        fingerprint
-      });
+    if (latestMessage) {
+      const cacheKey = `${latestFingerprint}:${latestMessage.unreadCount}`;
+      if (!sentFingerprints.has(cacheKey)) {
+        const oppositeCount = latestMessage.unreadCount > 0 ? 0 : 1;
+        sentFingerprints.delete(`${latestFingerprint}:${oppositeCount}`);
+
+        sentFingerprints.add(cacheKey);
+        sentCount += 1;
+        chrome.runtime.sendMessage({
+          type: 'NEW_MESSAGE',
+          ...currentStore,
+          ...latestMessage,
+          fingerprint: latestFingerprint
+        });
+      }
     }
 
     if (sentFingerprints.size > 500) {
@@ -366,16 +374,6 @@
     return false;
   });
 
-  document.addEventListener('visibilitychange', () => {
-    isActive = !document.hidden;
-  });
-  window.addEventListener('focus', () => {
-    isActive = true;
-  });
-  window.addEventListener('blur', () => {
-    isActive = false;
-  });
-
   const observer = new MutationObserver(() => {
     extractMessages();
   });
@@ -384,8 +382,9 @@
     observer.observe(document.body, { childList: true, subtree: true });
     extractMessages();
     setInterval(extractMessages, 5000);
+    // Only reload when the tab is truly hidden (user switched away), not on blur
     setInterval(() => {
-      if (!isActive) location.reload();
+      if (document.hidden) location.reload();
     }, 10000);
   });
 })();

@@ -100,28 +100,62 @@ async function insertMessage(event) {
   const storeName = String(event.storeName || 'Unknown eBay Store');
   const buyer = String(event.buyer || 'Unknown buyer').trim();
   const preview = String(event.preview || '').trim();
-  const unread = Number(event.unreadCount || event.unread || 1);
+  const unread = Number(event.unreadCount !== undefined ? event.unreadCount : (event.unread !== undefined ? event.unread : 1));
 
   if (!storeId || !preview) return null;
 
   await upsertStore(storeId, storeName);
 
   const fingerprint = event.fingerprint || fingerprintFor(storeId, buyer, preview);
-  const { data, error } = await supabaseAdmin
-    .from('messages')
-    .insert({
-      store_id: storeId,
-      buyer,
-      preview,
-      unread,
-      fingerprint,
-      status: 'unread'
-    })
-    .select('*, stores(name)')
-    .single();
+  const targetStatus = unread > 0 ? 'unread' : 'read';
 
-  if (error?.code === '23505') return null;
-  if (error) throw error;
+  // 1. Check if the message already exists in database
+  const { data: existing, error: findError } = await supabaseAdmin
+    .from('messages')
+    .select('id, status, unread, created_at')
+    .eq('fingerprint', fingerprint)
+    .maybeSingle();
+
+  if (findError) throw findError;
+
+  let data;
+  if (existing) {
+    // Only update if not archived, and if status or unread count actually changed
+    if (existing.status !== 'archived' && (existing.status !== targetStatus || existing.unread !== unread)) {
+      const { data: updated, error: updateError } = await supabaseAdmin
+        .from('messages')
+        .update({ unread, status: targetStatus })
+        .eq('id', existing.id)
+        .select('*, stores(name)')
+        .single();
+      
+      if (updateError) throw updateError;
+      data = updated;
+    } else {
+      // No updates needed
+      return null;
+    }
+  } else {
+    // 2. Insert new message
+    const { data: inserted, error: insertError } = await supabaseAdmin
+      .from('messages')
+      .insert({
+        store_id: storeId,
+        buyer,
+        preview,
+        unread,
+        fingerprint,
+        status: targetStatus
+      })
+      .select('*, stores(name)')
+      .single();
+
+    if (insertError) {
+      if (insertError.code === '23505') return null; // race condition safety
+      throw insertError;
+    }
+    data = inserted;
+  }
 
   const payload = {
     type: 'NEW_MESSAGE',

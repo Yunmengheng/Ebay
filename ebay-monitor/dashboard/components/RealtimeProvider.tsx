@@ -114,16 +114,19 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const normalized = normalizeMessage(message);
     setMessages((current) => {
       const exists = current.some((item) => item.id === normalized.id);
+      
+      if (!exists && !seenMessages.current.has(normalized.id)) {
+        seenMessages.current.add(normalized.id);
+        if (shouldNotify) {
+          setTimeout(() => notify(normalized), 0);
+        }
+      }
+
       const next = exists
         ? current.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
         : [normalized, ...current];
       return next.slice(0, 200);
     });
-
-    if (!seenMessages.current.has(normalized.id)) {
-      seenMessages.current.add(normalized.id);
-      if (shouldNotify) notify(normalized);
-    }
   }, [notify]);
 
   const mergeStore = useCallback((store: Store) => {
