@@ -256,6 +256,19 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return;
     }
 
+    if (message.type === 'SYNC_INBOX') {
+      const store = await ensureStore(message.storeName);
+      sendSocket({
+        type: 'SYNC_INBOX',
+        storeId: store.storeId,
+        storeName: store.storeName,
+        fingerprints: message.fingerprints,
+        timestamp: Date.now()
+      });
+      sendResponse({ ok: true });
+      return;
+    }
+
     if (message.type === 'NEW_MESSAGE') {
       const store = await ensureStore(message.storeName);
       const isUnread = (message.unreadCount || 0) > 0;
@@ -263,21 +276,29 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       const fingerprint = message.fingerprint;
 
       const notifiedMap = await getNotifiedFingerprints();
-      const previousStatus = notifiedMap[fingerprint];
+      const previousEntry = notifiedMap[fingerprint];
+
+      // Handle legacy string entry migration safely
+      const previousStatus = typeof previousEntry === 'string' ? previousEntry : previousEntry?.status;
+      const previousPreview = typeof previousEntry === 'string' ? null : previousEntry?.preview;
 
       const event = {
         type: 'NEW_MESSAGE',
         ...store,
         buyer: message.buyer,
+        subject: message.subject,
         preview: message.preview,
         unreadCount: message.unreadCount !== undefined ? message.unreadCount : 1,
         fingerprint: fingerprint,
-        timestamp: Date.now()
+        timestamp: message.timestamp || Date.now()
       };
 
+      const hasNewPreview = previousPreview !== null && previousPreview !== message.preview;
+      const hasStatusChanged = previousStatus !== targetStatus;
+
       if (previousStatus === undefined) {
-        // Brand new message (never seen before)
-        notifiedMap[fingerprint] = targetStatus;
+        // Brand new message/thread (never seen before)
+        notifiedMap[fingerprint] = { status: targetStatus, preview: message.preview };
         await saveNotifiedFingerprints(notifiedMap);
 
         if (isUnread) {
@@ -285,15 +306,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           await setStorage({ unreadCount });
           queueNotification(event);
         }
-        sendSocket(event);
-      } else if (previousStatus !== targetStatus) {
-        // Status changed (read -> unread or unread -> read)
-        notifiedMap[fingerprint] = targetStatus;
+      } else if (hasNewPreview || hasStatusChanged) {
+        // Status changed or a new message arrived in the same conversation thread
+        notifiedMap[fingerprint] = { status: targetStatus, preview: message.preview };
         await saveNotifiedFingerprints(notifiedMap);
 
-        // Send update to backend/dashboard, but do NOT show a Chrome notification
-        sendSocket(event);
+        // Trigger notification only if it is actually a new message content (preview changed) AND unread
+        if (hasNewPreview && isUnread) {
+          unreadCount += 1;
+          await setStorage({ unreadCount });
+          queueNotification(event);
+        }
       }
+
+      // Always send the message event to the backend so it can upsert/synchronize the database.
+      // The backend is idempotent and will only perform updates/broadcasts if values actually changed.
+      sendSocket(event);
 
       sendResponse({ ok: true, status });
       return;

@@ -42,8 +42,8 @@ const safeJson = (raw) => {
   }
 };
 
-const fingerprintFor = (storeId, buyer, preview) =>
-  createHash('sha256').update(`${storeId}:${buyer}:${preview}`).digest('base64url');
+const fingerprintFor = (storeId, buyer, subject = '') =>
+  createHash('sha256').update(`${storeId}:${buyer}:${subject.trim().toLowerCase()}`).digest('base64url');
 
 const send = (client, payload) => {
   if (client.readyState === WebSocket.OPEN) {
@@ -62,7 +62,7 @@ async function fetchInit() {
         .from('messages')
         .select('*, stores(name)')
         .order('created_at', { ascending: false })
-        .limit(75),
+        .limit(500),
       supabaseAdmin
         .from('stores')
         .select('*')
@@ -95,24 +95,53 @@ async function upsertStore(storeId, storeName) {
   });
 }
 
+// Runtime flag: detect if the 'subject' column exists in the messages table.
+// Set to true once confirmed, stays false if column is missing (run migration 002 to add it).
+let hasSubjectColumn = false;
+
+async function detectSubjectColumn() {
+  try {
+    const { error } = await supabaseAdmin
+      .from('messages')
+      .select('subject')
+      .limit(1);
+    if (!error) {
+      hasSubjectColumn = true;
+      console.log('[server] subject column detected in messages table.');
+    } else {
+      hasSubjectColumn = false;
+      console.warn('[server] subject column NOT found. Run supabase/migrations/002_add_subject.sql to add it.');
+    }
+  } catch {
+    hasSubjectColumn = false;
+  }
+}
+
+detectSubjectColumn();
+
 async function insertMessage(event) {
   const storeId = String(event.storeId || '');
   const storeName = String(event.storeName || 'Unknown eBay Store');
   const buyer = String(event.buyer || 'Unknown buyer').trim();
   const preview = String(event.preview || '').trim();
+  const subject = String(event.subject || '').trim();
   const unread = Number(event.unreadCount !== undefined ? event.unreadCount : (event.unread !== undefined ? event.unread : 1));
 
-  if (!storeId || !preview) return null;
+  // Allow empty preview if subject exists (some eBay messages only show subject)
+  if (!storeId || (!preview && !subject)) return null;
 
   await upsertStore(storeId, storeName);
 
-  const fingerprint = event.fingerprint || fingerprintFor(storeId, buyer, preview);
+  const fingerprint = event.fingerprint || fingerprintFor(storeId, buyer, subject);
   const targetStatus = unread > 0 ? 'unread' : 'read';
 
   // 1. Check if the message already exists in database
+  const selectFields = hasSubjectColumn
+    ? 'id, status, unread, preview, subject, created_at'
+    : 'id, status, unread, preview, created_at';
   const { data: existing, error: findError } = await supabaseAdmin
     .from('messages')
-    .select('id, status, unread, created_at')
+    .select(selectFields)
     .eq('fingerprint', fingerprint)
     .maybeSingle();
 
@@ -120,11 +149,42 @@ async function insertMessage(event) {
 
   let data;
   if (existing) {
-    // Only update if not archived, and if status or unread count actually changed
-    if (existing.status !== 'archived' && (existing.status !== targetStatus || existing.unread !== unread)) {
+    const previewChanged = existing.preview !== preview;
+    const subjectChanged = (existing.subject || '') !== subject;
+    const statusChanged = existing.status !== targetStatus || existing.unread !== unread;
+
+    const incomingTs = event.timestamp ? new Date(event.timestamp).getTime() : null;
+    const existingTs = existing.created_at ? new Date(existing.created_at).getTime() : null;
+    // Update timestamp if incoming differs by more than 30 seconds
+    const tsChanged = incomingTs && (!existingTs || Math.abs(incomingTs - existingTs) > 30 * 1000);
+
+    const shouldUpdateContent = previewChanged || subjectChanged;
+    const shouldUpdateStatus = shouldUpdateContent || (existing.status !== 'archived' && statusChanged);
+    const shouldUpdateTs = shouldUpdateContent;
+
+    if (shouldUpdateStatus || shouldUpdateTs) {
+      const updatePayload = {};
+
+      if (shouldUpdateStatus) {
+        updatePayload.unread = unread;
+        updatePayload.status = targetStatus;
+      }
+
+      if (previewChanged) {
+        updatePayload.preview = preview;
+      }
+
+      if (hasSubjectColumn && subjectChanged) {
+        updatePayload.subject = subject;
+      }
+
+      if (shouldUpdateTs) {
+        updatePayload.created_at = event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString();
+      }
+
       const { data: updated, error: updateError } = await supabaseAdmin
         .from('messages')
-        .update({ unread, status: targetStatus })
+        .update(updatePayload)
         .eq('id', existing.id)
         .select('*, stores(name)')
         .single();
@@ -137,16 +197,21 @@ async function insertMessage(event) {
     }
   } else {
     // 2. Insert new message
+    const insertPayload = {
+      store_id: storeId,
+      buyer,
+      preview,
+      unread,
+      fingerprint,
+      status: targetStatus,
+      created_at: event.timestamp ? new Date(event.timestamp).toISOString() : new Date().toISOString()
+    };
+    if (hasSubjectColumn) {
+      insertPayload.subject = subject;
+    }
     const { data: inserted, error: insertError } = await supabaseAdmin
       .from('messages')
-      .insert({
-        store_id: storeId,
-        buyer,
-        preview,
-        unread,
-        fingerprint,
-        status: targetStatus
-      })
+      .insert(insertPayload)
       .select('*, stores(name)')
       .single();
 
@@ -163,6 +228,7 @@ async function insertMessage(event) {
     storeId,
     storeName,
     buyer,
+    subject,
     preview,
     unreadCount: unread,
     timestamp: data.created_at,
@@ -171,6 +237,32 @@ async function insertMessage(event) {
 
   broadcastDashboards(payload);
   return payload;
+}
+
+async function syncInbox(event) {
+  const storeId = String(event.storeId || '');
+  const storeName = String(event.storeName || 'Unknown eBay Store');
+  const fingerprints = event.fingerprints || [];
+
+  if (!storeId) return;
+
+  await upsertStore(storeId, storeName);
+
+  let query = supabaseAdmin.from('messages').delete().eq('store_id', storeId);
+  if (fingerprints.length > 0) {
+    query = query.not('fingerprint', 'in', `(${fingerprints.map(f => `"${f}"`).join(',')})`);
+  }
+  const { error } = await query;
+  if (error) {
+    console.error(`Failed to delete stale messages for store ${storeId}:`, error.message);
+    throw error;
+  }
+
+  broadcastDashboards({
+    type: 'SYNC_INBOX',
+    storeId,
+    fingerprints
+  });
 }
 
 async function markOffline(storeId) {
@@ -240,6 +332,15 @@ wss.on('connection', async (ws, request) => {
         ws.storeId = event.storeId;
         extensions.set(event.storeId, ws);
         await insertMessage(event);
+        return;
+      }
+
+      if (event.type === 'SYNC_INBOX') {
+        ws.role = 'extension';
+        ws.storeId = event.storeId;
+        extensions.set(event.storeId, ws);
+        await syncInbox(event);
+        return;
       }
     } catch (error) {
       console.error(`Failed to process ${event.type}:`, error.message);

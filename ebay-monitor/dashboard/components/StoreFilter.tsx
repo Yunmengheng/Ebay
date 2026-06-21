@@ -62,7 +62,7 @@ export function StoreFilter({
         <input
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Search buyer or preview"
+          placeholder="Search customer name or message..."
           className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-accent"
         />
       </label>

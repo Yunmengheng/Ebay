@@ -26,42 +26,6 @@
       '[aria-label*="Hi "]',
       'button[aria-label*="account"]',
       'a[href*="my.ebay.com"]'
-    ],
-    rows: [
-      '[data-testid*="message" i]',
-      '[data-testid*="conversation" i]',
-      '[data-test-id*="message" i]',
-      '[class*="message" i]',
-      '[class*="conversation" i]',
-      '[role="listitem"]',
-      '[role="row"]',
-      'li',
-      'tr',
-      'article'
-    ],
-    buyer: [
-      '[data-testid*="sender" i]',
-      '[data-testid*="buyer" i]',
-      '[class*="sender" i]',
-      '[class*="buyer" i]',
-      'h3',
-      'h4',
-      'strong',
-      'b'
-    ],
-    preview: [
-      '[data-testid*="preview" i]',
-      '[data-testid*="subject" i]',
-      '[class*="preview" i]',
-      '[class*="subject" i]',
-      '[class*="snippet" i]',
-      'p'
-    ],
-    unread: [
-      '[aria-label*="unread" i]',
-      '[class*="unread" i]',
-      '[class*="badge" i]',
-      '[class*="count" i]'
     ]
   };
 
@@ -70,14 +34,6 @@
 
   const rawText = (node) => (node?.innerText || node?.textContent || '').trim();
   const text = (node) => (node?.textContent || '').replace(/\s+/g, ' ').trim();
-
-  function firstMatch(root, selectors) {
-    for (const selector of selectors) {
-      const match = root.querySelector(selector);
-      if (match && text(match)) return match;
-    }
-    return null;
-  }
 
   function detectStoreName() {
     for (const selector of SELECTORS.user) {
@@ -98,8 +54,113 @@
     return name;
   }
 
-  function fingerprintFor(storeId, buyer, preview) {
-    return btoa(unescape(encodeURIComponent(`${storeId}:${buyer}:${preview}`)));
+  function fingerprintFor(storeId, buyer, subject = '') {
+    const cleanSubject = (subject || '').trim().toLowerCase();
+    return btoa(unescape(encodeURIComponent(`${storeId}:${buyer}:${cleanSubject}`)));
+  }
+
+  /**
+   * Parse eBay relative time strings like "3h", "1d", "50m", "just now"
+   * into a unix timestamp (ms). Returns null if parsing fails.
+   */
+  function parseEbayRelativeTime(rawText) {
+    const t = (rawText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (!t || t.length > 30) return null;
+
+    const now = Date.now();
+
+    if (/^(just now|now|<\s*1\s*(m|min)|0\s*(m|min))$/.test(t)) return now;
+    if (t === 'today') return now;
+    if (t === 'yesterday') return now - 86400000;
+
+    // Time of day: "10:30 AM", "2:15 PM", "10:30", "14:20" etc.
+    const timeM = t.match(/^(\d{1,2}):(\d{2})\s*(am|pm)?$/);
+    if (timeM) {
+      const [, hrsStr, minsStr, ampm] = timeM;
+      let hrs = parseInt(hrsStr, 10);
+      const mins = parseInt(minsStr, 10);
+      if (ampm === 'pm' && hrs < 12) hrs += 12;
+      if (ampm === 'am' && hrs === 12) hrs = 0;
+      
+      const d = new Date();
+      d.setHours(hrs, mins, 0, 0);
+      if (d.getTime() > now) {
+        d.setDate(d.getDate() - 1);
+      }
+      return d.getTime();
+    }
+
+    // Relative: "3h", "10h", "1d", "50m", "2w", "1 hr", "3 days" etc.
+    const rel = t.match(/^(\d+)\s*(s|sec|m|min|h|hr|d|day|w|wk|week)s?$/);
+    if (rel) {
+      const num = parseInt(rel[1], 10);
+      const unit = rel[2][0]; // s, m, h, d, w
+      const msMap = { s: 1e3, m: 6e4, h: 36e5, d: 864e5, w: 6048e5 };
+      return now - num * (msMap[unit] || 0);
+    }
+
+    // Absolute: "Jun 14", "14 Jun", "Jun 14, 2025", "14 Jun 25" etc.
+    const monthNames = {
+      jan:0,feb:1,mar:2,apr:3,may:4,jun:5,jul:6,aug:7,sep:8,oct:9,nov:10,dec:11
+    };
+    const absM = t.match(/^([a-z]{3,9})\s+(\d{1,2})(?:,?\s+(\d{2,4}))?$/) || t.match(/^(\d{1,2})\s+([a-z]{3,9})(?:,?\s+(\d{2,4}))?$/);
+    if (absM) {
+      const [, a, b, yearStr] = absM;
+      const monthKey = (isNaN(Number(a)) ? a : b).slice(0, 3);
+      const day = isNaN(Number(a)) ? Number(b) : Number(a);
+      const monthIdx = monthNames[monthKey];
+      if (monthIdx !== undefined) {
+        let year = new Date().getFullYear();
+        if (yearStr) {
+          const parsedYear = parseInt(yearStr, 10);
+          if (yearStr.length === 2) {
+            year = 2000 + parsedYear;
+          } else {
+            year = parsedYear;
+          }
+        }
+        const d = new Date(year, monthIdx, day, 12, 0, 0);
+        return d.getTime();
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Extract the eBay send-time from a row. Returns a ms timestamp.
+   * Falls back to (now - rowIndex * 1s) so DOM order is preserved.
+   */
+  function extractEbayTimestamp(row, rowIndex) {
+    // 1. Try <time datetime="…"> — most reliable
+    const timeEl = row.querySelector('time[datetime]');
+    if (timeEl) {
+      const dt = timeEl.getAttribute('datetime');
+      const d = new Date(dt || '');
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    // 2. Try data-timestamp / data-date attributes anywhere in row
+    const attrEl = row.querySelector('[data-timestamp], [data-date], [data-time]');
+    if (attrEl) {
+      const val = attrEl.dataset.timestamp || attrEl.dataset.date || attrEl.dataset.time || '';
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d.getTime();
+    }
+
+    // 3. Scan all leaf nodes (no children) in REVERSE order — eBay timestamp is last
+    const allEls = [...row.querySelectorAll('*')].reverse();
+    for (const el of allEls) {
+      if (el.children.length > 0) continue; // leaf only
+      const txt = (el.textContent || '').trim();
+      if (txt.length < 1 || txt.length > 15) continue;
+      const parsed = parseEbayRelativeTime(txt);
+      if (parsed !== null) return parsed;
+    }
+
+    // 4. Fallback: preserve DOM order using 1-second spacing (so row 0 > row 1 > row 2...)
+    //    Use a large base offset to distinguish from "real" timestamps
+    return Date.now() - rowIndex * 1000;
   }
 
   function isRowUnread(row) {
@@ -110,8 +171,6 @@
     ) return true;
 
     // 2. Font-weight on the buyer/sender node specifically.
-    //    In eBay's new UI the buyer name is bold (700) when unread, normal (400) when read.
-    //    We skip generic `strong` and `b` since those are always bold by default.
     const specificBuyerSelectors = [
       '[data-testid*="sender" i]',
       '[data-testid*="buyer" i]',
@@ -124,14 +183,11 @@
       const node = row.querySelector(sel);
       if (node) {
         const fw = parseInt(window.getComputedStyle(node).fontWeight, 10);
-        // Bold = unread, normal/light = read
         return fw >= 600;
       }
     }
 
-    // 3. Fallback: check font-weight of the very first non-empty inline text node
-    //    that is a direct child span/p of the row (not a nested container).
-    //    This avoids scanning every element and hitting icon/button elements.
+    // 3. Fallback: check first non-empty child element's font weight
     for (const el of row.children) {
       const t = (el.textContent || '').trim();
       if (t.length > 2) {
@@ -144,164 +200,304 @@
   }
 
   function parseUnread(row) {
-    const unreadNode = firstMatch(row, SELECTORS.unread);
-    const unreadText = text(unreadNode);
-    const number = Number((unreadText.match(/\d+/) || [])[0] || 0);
+    // 1. Try to find a badge or count element specifically.
+    // Usually these are small elements with just a number.
+    const countNodes = row.querySelectorAll('[class*="count" i], [class*="badge" i], [class*="unread" i]');
+    for (const node of countNodes) {
+      if (node === row) continue;
+      const tagName = node.tagName.toLowerCase();
+      if (tagName === 'button' || tagName === 'tr' || tagName === 'li') {
+        continue;
+      }
+      const txt = text(node).trim();
+      if (txt.length > 0 && txt.length <= 8) {
+        const num = Number((txt.match(/\d+/) || [])[0]);
+        if (!isNaN(num) && num > 0) return num;
+      }
+    }
+    
+    // 2. If no specific numeric badge is found, just use the boolean unread status (1 or 0)
     const rowUnread = isRowUnread(row);
-    // DEBUG — open eBay DevTools console (F12) to see what is detected
-    console.log('[EbayMonitor] isRowUnread:', rowUnread, '| row text snippet:', text(row).slice(0, 80));
-    return Math.max(number, rowUnread ? 1 : 0);
-  }
-
-  function cleanLine(line) {
-    return line
-      .replace(/^\s*select\s*/i, '')
-      .replace(/^\s*unread\s*/i, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
-
-  function rowLines(row) {
-    return rawText(row)
-      .split(/\n|(?=[A-Z][a-z]+\d)/)
-      .map(cleanLine)
-      .filter(Boolean);
+    return rowUnread ? 1 : 0;
   }
 
   function looksLikeDateLine(line) {
     return /^(just now|today|yesterday|\d+\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)|[a-z]{3,9}\s+\d{1,2}|\d{1,2}\s+[a-z]{3,9})$/i.test(line.trim());
   }
 
-  function looksLikeProductTitle(line) {
-    return /\b(free shipping|mini excavator|digger|crawler|engine|epa|attachment|forklift|rated capacity|ton|lbs|hp|gas|diesel|hydraulic|tracked|skid steer)\b/i.test(line);
+  function getRowTextFragments(row) {
+    const fragments = [];
+    const walk = document.createTreeWalker(row, NodeFilter.SHOW_TEXT, {
+      acceptNode: (node) => {
+        let parent = node.parentElement;
+        while (parent && parent !== row) {
+          if (parent.classList) {
+            if (
+              parent.classList.contains('sr-only') ||
+              parent.classList.contains('clipped')
+            ) {
+              return NodeFilter.FILTER_REJECT;
+            }
+          }
+          parent = parent.parentElement;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    }, false);
+    let node;
+    while (node = walk.nextNode()) {
+      const txt = node.textContent.trim().replace(/\s+/g, ' ');
+      if (txt && !fragments.includes(txt)) {
+        fragments.push(txt);
+      }
+    }
+    return fragments;
   }
 
-  function extractMessagePreview(lines, buyer) {
-    const useful = lines.filter((line) => {
+  /**
+   * System/navigation labels that should never be treated as buyer names
+   */
+  const SYSTEM_LABELS = /^(Inbox|From members|Unread from members|From eBay|Unread from eBay|Sent|Deleted|Archive|Archived|Folders|Get-back client|Create folder|Select all|Mark as read|Mark as unread|Move to|Select|Unread|Read|eBay)$/i;
+
+  function extractMessageFromRow(row) {
+    const rawFragments = getRowTextFragments(row);
+    
+    // Clean up fragments
+    const cleanFragments = rawFragments.filter(f => {
+      const lf = f.toLowerCase();
       return (
-        line &&
-        line.toLowerCase() !== buyer.toLowerCase() &&
-        !looksLikeDateLine(line)
+        f.length >= 2 &&
+        lf !== 'select' &&
+        lf !== 'unread' &&
+        lf !== 'read' &&
+        !/^edit\d+\/\d+$/.test(lf) &&
+        !SYSTEM_LABELS.test(f.trim())
       );
     });
 
-    if (useful.length === 0) return '';
-    const lastLine = useful[useful.length - 1];
-    // Clean up reply indicators (like ↶ or ↷) at the beginning of the message
-    return lastLine.replace(/^[↶↷]\s*/, '').trim();
-  }
+    if (cleanFragments.length < 2) return null;
 
-  function isTodayOrYesterday(rowText) {
-    const value = rowText.toLowerCase();
-    if (/\b(just now|today|yesterday)\b/.test(value)) return true;
-
-    const relativeMatches = [...value.matchAll(/\b(\d+)\s*(m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days)\b/g)];
-    if (relativeMatches.some((match) => {
-      const amount = Number(match[1]);
-      const unit = match[2];
-      if (unit.startsWith('m') || unit.startsWith('h')) return true;
-      if (unit.startsWith('d')) return amount <= 1;
-      return false;
-    })) {
-      return true;
-    }
-
-    const months = {
-      jan: 0,
-      january: 0,
-      feb: 1,
-      february: 1,
-      mar: 2,
-      march: 2,
-      apr: 3,
-      april: 3,
-      may: 4,
-      jun: 5,
-      june: 5,
-      jul: 6,
-      july: 6,
-      aug: 7,
-      august: 7,
-      sep: 8,
-      sept: 8,
-      september: 8,
-      oct: 9,
-      october: 9,
-      nov: 10,
-      november: 10,
-      dec: 11,
-      december: 11
-    };
-
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-    const yesterday = today - 24 * 60 * 60 * 1000;
-    const monthNames = Object.keys(months).join('|');
-    const datePatterns = [
-      new RegExp(`\\b(${monthNames})\\s+(\\d{1,2})\\b`, 'gi'),
-      new RegExp(`\\b(\\d{1,2})\\s+(${monthNames})\\b`, 'gi')
-    ];
-
-    for (const pattern of datePatterns) {
-      for (const match of value.matchAll(pattern)) {
-        const monthName = Number.isNaN(Number(match[1])) ? match[1] : match[2];
-        const day = Number.isNaN(Number(match[1])) ? Number(match[2]) : Number(match[1]);
-        const date = new Date(now.getFullYear(), months[monthName], day).getTime();
-        if (date === today || date === yesterday) return true;
+    // Find and remove time/date fragment (search from end)
+    let timeIdx = -1;
+    let ebayTimeStr = '';
+    for (let i = cleanFragments.length - 1; i >= 0; i--) {
+      if (parseEbayRelativeTime(cleanFragments[i]) !== null || looksLikeDateLine(cleanFragments[i])) {
+        timeIdx = i;
+        ebayTimeStr = cleanFragments[i];
+        break;
       }
     }
 
-    return false;
-  }
-
-  function extractMessageFromRow(row) {
-    const rowText = text(row);
-    if (!rowText || rowText.length < 8) return null;
-
-    // Skip pure navigation/folder rows (exact matches only)
-    if (/^(Inbox|From members|Unread from members|From eBay|Sent|Deleted|Archive|Folders|My Folder \d*|Get-back client|Create folder)$/i.test(rowText.trim())) {
-      return null;
+    if (timeIdx !== -1) {
+      cleanFragments.splice(timeIdx, 1);
     }
 
-    const buyerNode = firstMatch(row, SELECTORS.buyer);
-    const lines = rowLines(row);
-    const buyer = text(buyerNode) || lines[0] || '';
-    if (!buyer || buyer.length < 2) return null;
+    if (cleanFragments.length < 1) return null;
 
-    const preview = extractMessagePreview(lines, buyer) || rowText.replace(buyer, '').trim().slice(0, 240);
-    if (!preview || preview.length < 2) return null;
+    // Buyer is the first remaining fragment
+    const buyer = cleanFragments[0];
+    cleanFragments.shift();
+
+    if (!buyer || buyer.length < 2) return null;
+    if (SYSTEM_LABELS.test(buyer.trim())) return null;
+
+    let subject = '';
+    let preview = '';
+
+    if (cleanFragments.length === 0) {
+      // Only buyer found, no preview — use empty string
+      preview = '';
+    } else if (cleanFragments.length === 1) {
+      // Could be subject OR preview — treat as preview (message text)
+      preview = cleanFragments[0];
+    } else {
+      // First = subject, rest = preview body
+      subject = cleanFragments[0];
+      preview = cleanFragments.slice(1).join(' ');
+    }
+
+    // Clean up reply indicators
+    preview = preview.replace(/^[↶↷]\s*/, '').trim();
+    subject = subject.replace(/^[↶↷]\s*/, '').trim();
 
     const unreadCount = parseUnread(row);
 
     return {
       buyer: buyer.slice(0, 120),
+      subject: subject.slice(0, 200),
       preview: preview.slice(0, 500),
-      unreadCount
+      unreadCount,
+      ebayTimeStr
     };
   }
 
+  /**
+   * Find all message rows in the inbox.
+   * Strategy: look for rows that contain a timestamp AND at least 2 other text fragments.
+   * We use multiple approaches to find rows and deduplicate by DOM node.
+   */
   function candidateRows() {
-    const rows = new Set();
+    const rowSet = new Set();
 
-    SELECTORS.rows.forEach((selector) => {
-      document.querySelectorAll(selector).forEach((row) => {
-        const value = text(row);
-        const rect = row.getBoundingClientRect();
-        if (value.length > 12 && value.length < 2500 && rect.width > 180 && rect.height > 28) {
-          rows.add(row);
-        }
+    // Strategy 1: checkbox-anchored rows (reliable when eBay has checkboxes)
+    const checkboxElements = document.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
+    for (const cb of checkboxElements) {
+      const row = findRowAncestor(cb);
+      if (!row) continue;
+      const textVal = (row.textContent || '').trim();
+      if (textVal.includes('Select all') || textVal.includes('Mark as read')) continue;
+      rowSet.add(row);
+    }
+
+    // Strategy 2: Scan for common eBay message-row containers
+    // eBay typically uses li elements or specific container divs in the message list
+    const containerSelectors = [
+      '[data-testid*="message" i]',
+      '[data-testid*="conversation" i]',
+      '[data-test-id*="message" i]',
+      '[class*="message-item" i]',
+      '[class*="msg-item" i]',
+      '[class*="conversation-item" i]',
+      'li[class*="message" i]',
+      'li[class*="conversation" i]'
+    ];
+    for (const sel of containerSelectors) {
+      document.querySelectorAll(sel).forEach(el => rowSet.add(el));
+    }
+
+    // Filter: only keep rows that have a parseable timestamp AND a plausible buyer name
+    const candidates = [];
+    for (const row of rowSet) {
+      const fragments = getRowTextFragments(row);
+      const hasTime = fragments.some(f => parseEbayRelativeTime(f) !== null || looksLikeDateLine(f));
+      if (!hasTime) continue;
+
+      // Must have at least 2 non-time fragments (buyer + preview/subject)
+      const nonTimeFrags = fragments.filter(f => {
+        const lf = f.toLowerCase();
+        return (
+          f.length >= 2 &&
+          parseEbayRelativeTime(f) === null &&
+          !looksLikeDateLine(f) &&
+          lf !== 'select' &&
+          lf !== 'unread' &&
+          lf !== 'read'
+        );
       });
-    });
+      if (nonTimeFrags.length < 1) continue;
 
-    document.querySelectorAll('strong, b').forEach((bold) => {
-      const row = bold.closest('[role="listitem"], [role="row"], li, tr, article, div');
-      const value = text(row);
-      if (row && value.length > 12 && value.length < 2500) rows.add(row);
-    });
+      candidates.push(row);
+    }
 
-    return [...rows].filter((row, index, all) => {
-      return !all.some((other, otherIndex) => otherIndex !== index && row.contains(other));
+    // If checkbox strategy found nothing, fall back to a broader DOM search:
+    // Look for list items that contain time fragments inside the main message container
+    if (candidates.length === 0) {
+      // Broad scan: any li, article, or role=listitem/row that has a timestamp
+      const broadCandidates = document.querySelectorAll('li, article, [role="listitem"], [role="row"]');
+      for (const el of broadCandidates) {
+        // Skip elements that are too tall (likely outer containers) or too small
+        const rect = el.getBoundingClientRect();
+        if (rect.height < 30 || rect.height > 200) continue;
+        if (rect.width < 200) continue;
+
+        const fragments = getRowTextFragments(el);
+        const hasTime = fragments.some(f => parseEbayRelativeTime(f) !== null || looksLikeDateLine(f));
+        if (!hasTime) continue;
+
+        const textVal = (el.textContent || '').trim();
+        if (textVal.includes('Select all') || textVal.includes('Mark as read')) continue;
+        if (SYSTEM_LABELS.test(textVal.trim())) continue;
+
+        candidates.push(el);
+      }
+    }
+
+    // Deduplicate: remove any element that is an ancestor of another in the set
+    // This prevents double-counting nested rows
+    const deduplicated = candidates.filter(el =>
+      !candidates.some(other => other !== el && el.contains(other))
+    );
+
+    // Return in DOM order (matches eBay's visual top-to-bottom order)
+    return deduplicated.sort((a, b) => {
+      const pos = a.compareDocumentPosition(b);
+      if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+      if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      return 0;
     });
+  }
+
+  function findRowAncestor(el) {
+    let parent = el.parentElement;
+    while (parent) {
+      const tag = parent.tagName.toLowerCase();
+      const role = parent.getAttribute('role');
+      const cls = parent.className || '';
+      
+      if (
+        tag === 'li' || 
+        tag === 'tr' || 
+        tag === 'article' || 
+        role === 'listitem' || 
+        role === 'row' || 
+        /message|conversation/i.test(cls)
+      ) {
+        return parent;
+      }
+      
+      if (tag === 'div') {
+        const rect = parent.getBoundingClientRect();
+        if (rect.width > 180 && rect.height > 28) {
+          const outer = parent.closest('li, tr, [role="listitem"], [role="row"]');
+          return outer || parent;
+        }
+      }
+      
+      parent = parent.parentElement;
+    }
+    return null;
+  }
+
+  function isInboxSelected() {
+    const path = location.pathname.toLowerCase();
+    const search = location.search.toLowerCase();
+
+    // 1. Check path/search for non-inbox folders
+    const nonInboxPaths = ['/sent', '/archive', '/deleted', '/trash', '/draft', '/from', '/unread'];
+    if (nonInboxPaths.some(p => path.includes(p))) {
+      return false;
+    }
+
+    if (search.includes('folder=') && !search.includes('folder=inbox')) {
+      return false;
+    }
+
+    // 2. Scan sidebar list items or links to see if a non-inbox folder is marked active/selected
+    const activeElements = document.querySelectorAll(
+      '[aria-current="page"], [aria-selected="true"], .active, .selected, [class*="active" i], [class*="selected" i]'
+    );
+
+    const nonInboxKeywords = [
+      'sent', 'archive', 'deleted', 'trash', 'draft',
+      'from', 'member', 'notification'
+    ];
+
+    for (const el of activeElements) {
+      const textVal = (el.textContent || '').trim().toLowerCase();
+      // Ignore large container elements that just happen to have an active class
+      if (textVal.length > 40) continue;
+
+      // If the selected element text indicates a non-inbox folder, return false
+      if (nonInboxKeywords.some(k => textVal.includes(k))) {
+        return false;
+      }
+
+      if (textVal.includes('ebay') && !textVal.includes('inbox')) {
+        return false;
+      }
+    }
+
+    return true;
   }
 
   async function initStore() {
@@ -316,29 +512,71 @@
   }
 
   async function extractMessages() {
+    if (!isInboxSelected()) {
+      console.log('[EbayMonitor] Skipping scan because a non-Inbox folder is selected.');
+      return { ok: true, candidateCount: 0, sentCount: 0 };
+    }
+
     const currentStore = await initStore();
     let sentCount = 0;
     const rows = candidateRows();
+    let conversationsScanned = 0;
+    const currentFingerprints = [];
+
+    console.log(`[EbayMonitor] Found ${rows.length} candidate rows`);
 
     for (let i = 0; i < rows.length; i++) {
       const message = extractMessageFromRow(rows[i]);
       if (message) {
-        const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.preview);
-        const cacheKey = `${fingerprint}:${message.unreadCount}`;
+        conversationsScanned++;
+        const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.subject);
+        currentFingerprints.push(fingerprint);
+
+        const cacheKey = `${fingerprint}:${message.unreadCount}:${message.preview}`;
         if (!sentFingerprints.has(cacheKey)) {
-          const oppositeCount = message.unreadCount > 0 ? 0 : 1;
-          sentFingerprints.delete(`${fingerprint}:${oppositeCount}`);
+          // Clear any older cache keys for the same fingerprint (different unreadCount or preview)
+          [...sentFingerprints].forEach((key) => {
+            if (key.startsWith(`${fingerprint}:`)) {
+              sentFingerprints.delete(key);
+            }
+          });
 
           sentFingerprints.add(cacheKey);
           sentCount += 1;
+
+          // Use the eBay timestamp for the message, using row position (i) as tiebreaker
+          // Row 0 (top of inbox = most recent) gets the highest timestamp
+          // When two messages have the same relative time, row order decides
+          const ebayTs = extractEbayTimestamp(rows[i], i);
+
+          // Encode row position into timestamp for stable ordering:
+          // Subtract an extra offset per row-position so rows that parse to the same
+          // relative time still sort correctly (row 0 > row 1 > row 2 ...).
+          // The offset is tiny (1 second per row) — well within rounding margin.
+          const stableTs = ebayTs - i * 1000;
+
           chrome.runtime.sendMessage({
             type: 'NEW_MESSAGE',
             ...currentStore,
             ...message,
-            fingerprint: fingerprint
+            fingerprint: fingerprint,
+            ebayTimestamp: stableTs,
+            // rowIndex is sent so the server can use it as ordering hint
+            rowIndex: i,
+            timestamp: new Date(stableTs).toISOString()
           });
+          console.log(`[EbayMonitor] Row ${i}: ${message.buyer} | time: ${new Date(stableTs).toLocaleString()} | subject: "${message.subject}" | preview: "${message.preview.slice(0, 40)}"`);
         }
+
       }
+    }
+
+    if (conversationsScanned > 0 || (rows.length === 0 && document.readyState === 'complete')) {
+      chrome.runtime.sendMessage({
+        type: 'SYNC_INBOX',
+        storeName: currentStore.storeName,
+        fingerprints: currentFingerprints
+      });
     }
 
     if (sentFingerprints.size > 1000) {

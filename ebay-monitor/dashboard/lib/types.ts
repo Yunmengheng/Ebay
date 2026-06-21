@@ -11,6 +11,7 @@ export type Message = {
   id: string;
   store_id: string;
   buyer: string;
+  subject: string;
   preview: string;
   unread: number;
   status: MessageStatus;

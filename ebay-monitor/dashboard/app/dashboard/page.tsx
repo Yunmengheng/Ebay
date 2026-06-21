@@ -1,12 +1,14 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { Archive, Circle, Mail, MailOpen } from 'lucide-react';
 import { MessageCard } from '@/components/MessageCard';
+import { MessageDetailPanel } from '@/components/MessageDetailPanel';
 import { StatsBar } from '@/components/StatsBar';
 import { StoreFilter } from '@/components/StoreFilter';
 import { ToastNotification } from '@/components/ToastNotification';
 import { useRealtime } from '@/components/RealtimeProvider';
+import type { Message } from '@/lib/types';
 
 export default function DashboardPage() {
   const { messages, stores, wsStatus, supabaseStatus, supabaseError, updateMessageStatus } = useRealtime();
@@ -14,6 +16,7 @@ export default function DashboardPage() {
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [openMessage, setOpenMessage] = useState<Message | null>(null);
 
   const masterCheckboxRef = useRef<HTMLInputElement>(null);
 
@@ -45,6 +48,13 @@ export default function DashboardPage() {
       return changed ? next : prev;
     });
   }, [filtered]);
+
+  // Keep openMessage in sync with latest data (e.g. status changes)
+  useEffect(() => {
+    if (!openMessage) return;
+    const updated = messages.find((m) => m.id === openMessage.id);
+    if (updated) setOpenMessage(updated);
+  }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const allVisibleSelected = filtered.length > 0 && filtered.every((msg) => selectedIds.has(msg.id));
   const someVisibleSelected = filtered.length > 0 && filtered.some((msg) => selectedIds.has(msg.id)) && !allVisibleSelected;
@@ -96,6 +106,14 @@ export default function DashboardPage() {
       console.error('Failed to perform bulk action:', err);
     }
   };
+
+  const handleOpenMessage = useCallback((message: Message) => {
+    setOpenMessage(message);
+  }, []);
+
+  const handleCloseMessage = useCallback(() => {
+    setOpenMessage(null);
+  }, []);
 
   return (
     <div className="space-y-5">
@@ -202,6 +220,7 @@ export default function DashboardPage() {
               store={stores.find((store) => store.id === message.store_id)}
               isSelected={selectedIds.has(message.id)}
               onSelectToggle={handleSelectToggle}
+              onOpen={handleOpenMessage}
             />
           ))}
 
@@ -214,6 +233,15 @@ export default function DashboardPage() {
       </section>
 
       <ToastNotification />
+
+      {/* Message Detail Panel (fullscreen overlay) */}
+      {openMessage && (
+        <MessageDetailPanel
+          message={openMessage}
+          store={stores.find((s) => s.id === openMessage.store_id)}
+          onClose={handleCloseMessage}
+        />
+      )}
     </div>
   );
 }

@@ -125,7 +125,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       const next = exists
         ? current.map((item) => (item.id === normalized.id ? { ...item, ...normalized } : item))
         : [normalized, ...current];
-      return next.slice(0, 200);
+      return next
+        .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        .slice(0, 500);
     });
   }, [notify]);
 
@@ -144,7 +146,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         .from('messages')
         .select('*, stores(name)')
         .order('created_at', { ascending: false })
-        .limit(75),
+        .limit(500),
       supabase.from('stores').select('*').order('last_seen', { ascending: false })
     ]);
 
@@ -177,17 +179,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       if (event.type === 'NEW_MESSAGE') {
         const message =
           event.message ||
-          ({
+          (({
             id: event.id,
             store_id: event.storeId,
             buyer: event.buyer,
+            subject: event.subject || '',
             preview: event.preview,
             unread: event.unreadCount,
             status: 'unread',
             fingerprint: event.id,
             created_at: event.timestamp,
             stores: { name: event.storeName }
-          } satisfies Message);
+          }) as Message);
         mergeMessage(message, true);
       }
 
@@ -198,6 +201,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           online: event.online,
           last_seen: event.lastSeen
         });
+      }
+
+      if (event.type === 'SYNC_INBOX') {
+        const storeId = event.storeId;
+        const fingerprints = new Set(event.fingerprints || []);
+        setMessages((current) =>
+          current.filter(
+            (msg) => msg.store_id !== storeId || fingerprints.has(msg.fingerprint)
+          )
+        );
       }
     };
 
