@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Archive, Check, Copy, Mail, MailOpen, Star, Store as StoreIcon } from 'lucide-react';
+import { Archive, Mail, MailOpen, Star } from 'lucide-react';
 import type { Message, Store } from '@/lib/types';
 import { relativeTime } from '@/lib/utils';
 import { useRealtime } from './RealtimeProvider';
@@ -50,29 +50,45 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
       ? 'bg-panel/50 border-l-2 border-accent hover:bg-panel/75'
       : 'bg-transparent border-l-2 border-transparent hover:bg-panel/40';
 
-  // Map first character of name to a specific background color, just like eBay's colored circles
-  const getAvatarStyle = (name: string) => {
-    const colors = [
-      'bg-red-500/20 text-red-400 border-red-500/30',
-      'bg-green-500/20 text-green-400 border-green-500/30',
-      'bg-blue-500/20 text-blue-400 border-blue-500/30',
-      'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
-      'bg-purple-500/20 text-purple-400 border-purple-500/30',
-      'bg-pink-500/20 text-pink-400 border-pink-500/30',
-      'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
-      'bg-teal-500/20 text-teal-400 border-teal-500/30',
-    ];
+  // Shared hash function for consistent color assignment
+  const nameHash = (name: string) => {
     let hash = 0;
     for (let i = 0; i < name.length; i++) {
       hash = name.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const index = Math.abs(hash) % colors.length;
-    return colors[index];
+    return Math.abs(hash);
   };
+
+  // Avatar circle colors (buyer)
+  const AVATAR_COLORS = [
+    'bg-red-500/20 text-red-400 border-red-500/30',
+    'bg-green-500/20 text-green-400 border-green-500/30',
+    'bg-blue-500/20 text-blue-400 border-blue-500/30',
+    'bg-yellow-500/20 text-yellow-400 border-yellow-500/30',
+    'bg-purple-500/20 text-purple-400 border-purple-500/30',
+    'bg-pink-500/20 text-pink-400 border-pink-500/30',
+    'bg-indigo-500/20 text-indigo-400 border-indigo-500/30',
+    'bg-teal-500/20 text-teal-400 border-teal-500/30',
+  ];
+
+  // Store badge colors — more vibrant/saturated so they stand out
+  const STORE_BADGE_COLORS = [
+    'bg-violet-500/20 text-violet-300 border-violet-500/40 ring-violet-500/20',
+    'bg-sky-500/20 text-sky-300 border-sky-500/40 ring-sky-500/20',
+    'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ring-emerald-500/20',
+    'bg-orange-500/20 text-orange-300 border-orange-500/40 ring-orange-500/20',
+    'bg-rose-500/20 text-rose-300 border-rose-500/40 ring-rose-500/20',
+    'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 ring-cyan-500/20',
+    'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40 ring-fuchsia-500/20',
+    'bg-amber-500/20 text-amber-300 border-amber-500/40 ring-amber-500/20',
+    'bg-lime-500/20 text-lime-300 border-lime-500/40 ring-lime-500/20',
+    'bg-teal-500/20 text-teal-300 border-teal-500/40 ring-teal-500/20',
+  ];
 
   const buyerName = message.buyer || 'Unknown';
   const initials = buyerName.charAt(0).toUpperCase();
-  const avatarClass = getAvatarStyle(buyerName);
+  const avatarClass = AVATAR_COLORS[nameHash(buyerName) % AVATAR_COLORS.length];
+  const storeBadgeClass = STORE_BADGE_COLORS[nameHash(storeName) % STORE_BADGE_COLORS.length];
 
   return (
     <div
@@ -119,9 +135,9 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
               <span className="text-[10px] text-green-400 shrink-0 font-medium animate-fade-in">Copied!</span>
             )}
 
-            {/* Store Tag */}
-            <span className="inline-flex items-center gap-1 rounded border border-border bg-panel px-1.5 py-0.5 text-[9px] text-neutral-400 font-medium font-mono shrink-0">
-              <StoreIcon className="h-2.5 w-2.5" />
+            {/* Store Badge — colored per store */}
+            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold shrink-0 tracking-wide ring-1 ring-inset ${storeBadgeClass}`}>
+              <span className="h-1.5 w-1.5 rounded-full bg-current opacity-80 shrink-0" />
               {storeName}
             </span>
           </div>

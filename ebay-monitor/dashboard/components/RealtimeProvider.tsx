@@ -16,6 +16,7 @@ type RealtimeContextValue = {
   setPreferences: (preferences: Preferences) => void;
   dismissToast: (id: string) => void;
   updateMessageStatus: (id: string, status: Message['status']) => Promise<void>;
+  deleteStore: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
 };
 
@@ -64,6 +65,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [preferences, setPreferencesState] = useState<Preferences>(DEFAULT_PREFERENCES);
   const seenMessages = useRef(new Set<string>());
   const preferencesRef = useRef(preferences);
+  const wsDisconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     preferencesRef.current = preferences;
@@ -134,9 +136,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const mergeStore = useCallback((store: Store) => {
     setStores((current) => {
       const exists = current.some((item) => item.id === store.id);
-      return exists
+      const next = exists
         ? current.map((item) => (item.id === store.id ? { ...item, ...store } : item))
-        : [store, ...current];
+        : [...current, store];
+      // Always keep stores sorted alphabetically so the dropdown never reorders
+      return next.sort((a, b) => a.name.localeCompare(b.name));
     });
   }, []);
 
@@ -160,7 +164,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     setSupabaseError(null);
     setMessages((messageData || []).map(normalizeMessage));
-    setStores(storeData || []);
+    setStores((storeData || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
     (messageData || []).forEach((message) => seenMessages.current.add(message.id));
   }, []);
 
@@ -172,7 +176,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     const handleEvent = (event: ServerEvent) => {
       if (event.type === 'INIT') {
         setMessages((event.messages || []).map(normalizeMessage));
-        setStores(event.stores || []);
+        setStores((event.stores || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
         (event.messages || []).forEach((message) => seenMessages.current.add(message.id));
       }
 
@@ -214,11 +218,29 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    return connectWebSocket(preferences.wsUrl, handleEvent, setWsStatus);
+    const stableSetWsStatus = (next: 'connected' | 'connecting' | 'disconnected') => {
+      if (next === 'disconnected') {
+        // Debounce "disconnected" by 2 s — brief reconnects (e.g. eBay tab refresh)
+        // won't flash the indicator red.
+        if (wsDisconnectTimer.current) return;
+        wsDisconnectTimer.current = setTimeout(() => {
+          wsDisconnectTimer.current = null;
+          setWsStatus('disconnected');
+        }, 2000);
+      } else {
+        // Immediately clear any pending disconnect and show the new status
+        if (wsDisconnectTimer.current) {
+          clearTimeout(wsDisconnectTimer.current);
+          wsDisconnectTimer.current = null;
+        }
+        setWsStatus(next);
+      }
+    };
+
+    return connectWebSocket(preferences.wsUrl, handleEvent, stableSetWsStatus);
   }, [mergeMessage, mergeStore, preferences.wsUrl]);
 
   useEffect(() => {
-    setSupabaseStatus('connecting');
     const messageChannel = supabase
       .channel('dashboard-messages-sync')
       .on(
@@ -244,7 +266,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        setSupabaseStatus((current) => (current === 'setup_required' ? current : 'connecting'));
+        // Only show "connecting" if we haven't successfully connected yet
+        setSupabaseStatus((current) =>
+          current === 'setup_required' || current === 'connected' ? current : 'connecting'
+        );
       });
 
     const storeChannel = supabase
@@ -269,6 +294,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData]);
 
+  const deleteStore = useCallback(async (id: string) => {
+    // Optimistically remove from UI immediately
+    setStores((current) => current.filter((s) => s.id !== id));
+    setMessages((current) => current.filter((m) => m.store_id !== id));
+    // Delete the store — messages cascade-delete via FK ON DELETE CASCADE
+    const { error } = await supabase.from('stores').delete().eq('id', id);
+    if (error) {
+      await refreshData();
+      throw error;
+    }
+  }, [refreshData]);
+
   const value = useMemo<RealtimeContextValue>(
     () => ({
       messages,
@@ -281,6 +318,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       setPreferences,
       dismissToast,
       updateMessageStatus,
+      deleteStore,
       refreshData
     }),
     [
@@ -294,6 +332,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       setPreferences,
       dismissToast,
       updateMessageStatus,
+      deleteStore,
       refreshData
     ]
   );

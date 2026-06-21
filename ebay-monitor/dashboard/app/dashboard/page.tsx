@@ -123,14 +123,14 @@ export default function DashboardPage() {
           <p className="mt-1 text-sm text-muted">WebSocket primary updates with Supabase Realtime sync.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
-          <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
-            <Circle className={`h-2.5 w-2.5 fill-current ${wsStatus === 'connected' ? 'text-success' : 'text-danger'}`} />
+          <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 min-w-[130px] justify-center">
+            <Circle className={`h-2.5 w-2.5 fill-current shrink-0 ${wsStatus === 'connected' ? 'text-success' : wsStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'}`} />
             WS {wsStatus}
           </span>
-          <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5">
+          <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 min-w-[180px] justify-center">
             <Circle
-              className={`h-2.5 w-2.5 fill-current ${
-                supabaseStatus === 'connected' ? 'text-success' : 'text-danger'
+              className={`h-2.5 w-2.5 fill-current shrink-0 ${
+                supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
               }`}
             />
             Supabase {supabaseStatus.replace('_', ' ')}
