@@ -3,12 +3,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { connectWebSocket, type ServerEvent } from '@/lib/websocket';
-import type { Message, NotificationItem, Preferences, Store, StoreLog, Toast } from '@/lib/types';
+import type { Message, NotificationItem, Preferences, Store, StoreLog, SystemLog, Toast } from '@/lib/types';
 
 type RealtimeContextValue = {
   messages: Message[];
   stores: Store[];
   storeLogs: StoreLog[];
+  systemLogs: SystemLog[];
   notifications: NotificationItem[];
   unseenNotifications: number;
   toasts: Toast[];
@@ -31,7 +32,7 @@ const DEFAULT_PREFERENCES: Preferences = {
   desktopNotifications: false,
   toastNotifications: true,
   soundAlerts: true,
-  wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:3001'
+  wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'wss://ebay-message-monitor-backend.onrender.com'
 };
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
@@ -65,6 +66,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [storeLogs, setStoreLogs] = useState<StoreLog[]>([]);
+  const [systemLogs, setSystemLogs] = useState<SystemLog[]>([]);
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [unseenNotifications, setUnseenNotifications] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
@@ -203,7 +205,26 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setStoreLogs((current) => [log, ...current].slice(0, 300));
   }, []);
 
+  const addSystemLog = useCallback((
+    source: SystemLog['source'],
+    level: SystemLog['level'],
+    message: string
+  ) => {
+    const timestamp = new Date().toISOString();
+    setSystemLogs((current) => [
+      {
+        id: `${source}:${timestamp}:${Math.random().toString(36).slice(2, 8)}`,
+        source,
+        level,
+        message,
+        timestamp
+      },
+      ...current
+    ].slice(0, 400));
+  }, []);
+
   const refreshData = useCallback(async () => {
+    addSystemLog('supabase', 'info', 'Fetching initial messages and stores from Supabase');
     const [{ data: messageData, error: messageError }, { data: storeData, error: storeError }] = await Promise.all([
       supabase
         .from('messages')
@@ -218,6 +239,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       const missingTable = error.code === '42P01' || error.message.toLowerCase().includes('could not find the table');
       setSupabaseStatus(missingTable ? 'setup_required' : 'disconnected');
       setSupabaseError(error.message);
+      addSystemLog('supabase', 'error', `Initial fetch failed: ${error.message}`);
       return;
     }
 
@@ -225,7 +247,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setMessages((messageData || []).map(normalizeMessage));
     setStores((storeData || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
     (messageData || []).forEach((message) => seenMessages.current.add(message.id));
-  }, []);
+    addSystemLog('supabase', 'success', `Initial fetch completed: ${(messageData || []).length} messages, ${(storeData || []).length} stores`);
+  }, [addSystemLog]);
 
   useEffect(() => {
     refreshData();
@@ -308,8 +331,13 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    return connectWebSocket(preferences.wsUrl, handleEvent, stableSetWsStatus);
-  }, [addStoreLog, mergeMessage, mergeStore, preferences.wsUrl]);
+    return connectWebSocket(
+      preferences.wsUrl,
+      handleEvent,
+      stableSetWsStatus,
+      (level, message) => addSystemLog('websocket', level, message)
+    );
+  }, [addStoreLog, addSystemLog, mergeMessage, mergeStore, preferences.wsUrl]);
 
   useEffect(() => {
     const messageChannel = supabase
@@ -326,6 +354,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
       )
       .subscribe((status) => {
+        addSystemLog('supabase', status === 'SUBSCRIBED' ? 'success' : 'info', `Messages realtime channel: ${status}`);
         if (status === 'SUBSCRIBED') {
           setSupabaseStatus('connected');
           setSupabaseError(null);
@@ -333,6 +362,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
 
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          addSystemLog('supabase', 'error', `Messages realtime channel problem: ${status}`);
           setSupabaseStatus((current) => (current === 'setup_required' ? current : 'disconnected'));
           return;
         }
@@ -348,13 +378,19 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'stores' }, (payload) => {
         if (payload.eventType !== 'DELETE') mergeStore(payload.new as Store);
       })
-      .subscribe();
+      .subscribe((status) => {
+        addSystemLog('supabase', status === 'SUBSCRIBED' ? 'success' : 'info', `Stores realtime channel: ${status}`);
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          addSystemLog('supabase', 'error', `Stores realtime channel problem: ${status}`);
+        }
+      });
 
     return () => {
+      addSystemLog('supabase', 'info', 'Removing Supabase realtime channels');
       supabase.removeChannel(messageChannel);
       supabase.removeChannel(storeChannel);
     };
-  }, [mergeMessage, mergeStore]);
+  }, [addSystemLog, mergeMessage, mergeStore]);
 
   const updateMessageStatus = useCallback(async (id: string, status: Message['status']) => {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, status } : message)));
@@ -400,6 +436,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       messages,
       stores,
       storeLogs,
+      systemLogs,
       notifications,
       unseenNotifications,
       toasts,
@@ -421,6 +458,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       messages,
       stores,
       storeLogs,
+      systemLogs,
       notifications,
       unseenNotifications,
       toasts,

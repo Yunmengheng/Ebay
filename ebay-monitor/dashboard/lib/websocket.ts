@@ -11,7 +11,8 @@ export type ServerEvent =
 export function connectWebSocket(
   url: string,
   onEvent: (event: ServerEvent) => void,
-  onStatus: (status: 'connected' | 'connecting' | 'disconnected') => void
+  onStatus: (status: 'connected' | 'connecting' | 'disconnected') => void,
+  onLog?: (level: 'info' | 'success' | 'warning' | 'error', message: string) => void
 ) {
   let socket: WebSocket | null = null;
   let closedByClient = false;
@@ -20,10 +21,12 @@ export function connectWebSocket(
 
   const open = () => {
     onStatus('connecting');
+    onLog?.('info', `Opening WebSocket connection to ${url}?role=dashboard`);
     socket = new WebSocket(`${url}?role=dashboard`);
 
     socket.onopen = () => {
       attempt = 0;
+      onLog?.('success', 'WebSocket connected');
       onStatus('connected');
     };
 
@@ -31,19 +34,26 @@ export function connectWebSocket(
       try {
         onEvent(JSON.parse(message.data));
       } catch {
+        onLog?.('warning', 'Ignored malformed WebSocket message');
         // Ignore malformed frames from non-dashboard clients.
       }
     };
 
-    socket.onclose = () => {
+    socket.onclose = (event) => {
       onStatus('disconnected');
-      if (closedByClient) return;
+      const details = `WebSocket closed (code ${event.code}${event.reason ? `, reason: ${event.reason}` : ''})`;
+      if (closedByClient) {
+        onLog?.('info', `${details}; closed by dashboard`);
+        return;
+      }
       const delay = Math.min(30000, 1000 * 2 ** attempt);
+      onLog?.('warning', `${details}; reconnecting in ${Math.round(delay / 1000)}s`);
       attempt += 1;
       reconnectTimer = window.setTimeout(open, delay);
     };
 
     socket.onerror = () => {
+      onLog?.('error', 'WebSocket error. Check backend URL, Render service status, and browser network access.');
       socket?.close();
     };
   };
@@ -53,6 +63,7 @@ export function connectWebSocket(
   return () => {
     closedByClient = true;
     if (reconnectTimer) window.clearTimeout(reconnectTimer);
+    onLog?.('info', 'Closing WebSocket connection');
     socket?.close();
   };
 }

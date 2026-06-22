@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { Activity, Bell, Settings, Store as StoreIcon } from 'lucide-react';
+import { Activity, Bell, Settings, Store as StoreIcon, Terminal } from 'lucide-react';
 import { NotificationCenter } from '@/components/NotificationCenter';
 import { RealtimeProvider } from '@/components/RealtimeProvider';
 import { ThemeInitializer } from '@/components/ThemeToggle';
@@ -14,6 +14,7 @@ export const metadata: Metadata = {
 const nav = [
   { href: '/dashboard', label: 'Dashboard', icon: Activity },
   { href: '/stores', label: 'Stores', icon: StoreIcon },
+  { href: '/logs', label: 'Logs', icon: Terminal },
   { href: '/settings', label: 'Settings', icon: Settings }
 ];
 
