@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
-import { Archive, Circle, Mail, MailOpen } from 'lucide-react';
+import { useMemo, useState, useEffect, useCallback } from 'react';
+import { Circle } from 'lucide-react';
 import { MessageCard } from '@/components/MessageCard';
 import { MessageDetailPanel } from '@/components/MessageDetailPanel';
 import { StatsBar } from '@/components/StatsBar';
@@ -11,14 +11,11 @@ import { useRealtime } from '@/components/RealtimeProvider';
 import type { Message } from '@/lib/types';
 
 export default function DashboardPage() {
-  const { messages, stores, wsStatus, supabaseStatus, supabaseError, updateMessageStatus } = useRealtime();
+  const { messages, stores, wsStatus, supabaseStatus, supabaseError } = useRealtime();
   const [storeId, setStoreId] = useState('all');
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [openMessage, setOpenMessage] = useState<Message | null>(null);
-
-  const masterCheckboxRef = useRef<HTMLInputElement>(null);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -34,78 +31,12 @@ export default function DashboardPage() {
     });
   }, [messages, query, status, storeId]);
 
-  // Clear selections that are no longer visible due to filters
-  useEffect(() => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      let changed = false;
-      for (const id of next) {
-        if (!filtered.some((msg) => msg.id === id)) {
-          next.delete(id);
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [filtered]);
-
   // Keep openMessage in sync with latest data (e.g. status changes)
   useEffect(() => {
     if (!openMessage) return;
     const updated = messages.find((m) => m.id === openMessage.id);
     if (updated) setOpenMessage(updated);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const allVisibleSelected = filtered.length > 0 && filtered.every((msg) => selectedIds.has(msg.id));
-  const someVisibleSelected = filtered.length > 0 && filtered.some((msg) => selectedIds.has(msg.id)) && !allVisibleSelected;
-
-  useEffect(() => {
-    if (masterCheckboxRef.current) {
-      masterCheckboxRef.current.indeterminate = someVisibleSelected;
-    }
-  }, [someVisibleSelected]);
-
-  const handleSelectToggle = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
-
-  const handleSelectAllToggle = () => {
-    if (allVisibleSelected) {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        filtered.forEach((msg) => next.delete(msg.id));
-        return next;
-      });
-    } else {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
-        filtered.forEach((msg) => next.add(msg.id));
-        return next;
-      });
-    }
-  };
-
-  const handleBulkAction = async (action: 'read' | 'unread' | 'archived') => {
-    const idsToUpdate = Array.from(selectedIds).filter((id) =>
-      filtered.some((msg) => msg.id === id)
-    );
-    if (idsToUpdate.length === 0) return;
-
-    try {
-      await Promise.all(idsToUpdate.map((id) => updateMessageStatus(id, action)));
-      setSelectedIds(new Set());
-    } catch (err) {
-      console.error('Failed to perform bulk action:', err);
-    }
-  };
 
   const handleOpenMessage = useCallback((message: Message) => {
     setOpenMessage(message);
@@ -160,52 +91,7 @@ export default function DashboardPage() {
       />
 
       <section className="rounded-card border border-border bg-surface overflow-hidden">
-        {/* Gmail-style Action Bar */}
-        <div className="flex items-center justify-between border-b border-border bg-panel px-3 py-2 h-12">
-          <div className="flex items-center gap-3">
-            <div className="flex items-center pl-1 sm:pl-3">
-              <input
-                ref={masterCheckboxRef}
-                type="checkbox"
-                checked={allVisibleSelected}
-                onChange={handleSelectAllToggle}
-                className="h-4 w-4 rounded border-border bg-surface text-accent focus:ring-accent cursor-pointer"
-              />
-            </div>
-
-            {selectedIds.size > 0 && (
-              <div className="flex items-center gap-1 sm:gap-2 animate-slide-in-top">
-                <span className="text-xs text-muted font-medium pr-1 sm:pr-2">
-                  {selectedIds.size} selected
-                </span>
-                <button
-                  onClick={() => handleBulkAction('read')}
-                  title="Mark as read"
-                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface text-neutral-300 hover:text-white transition text-xs font-medium"
-                >
-                  <MailOpen className="h-4 w-4 text-neutral-400" />
-                  <span className="hidden sm:inline">Mark read</span>
-                </button>
-                <button
-                  onClick={() => handleBulkAction('unread')}
-                  title="Mark as unread"
-                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface text-neutral-300 hover:text-white transition text-xs font-medium"
-                >
-                  <Mail className="h-4 w-4 text-neutral-400" />
-                  <span className="hidden sm:inline">Mark unread</span>
-                </button>
-                <button
-                  onClick={() => handleBulkAction('archived')}
-                  title="Archive"
-                  className="flex items-center gap-1.5 px-2 py-1 rounded hover:bg-surface text-neutral-300 hover:text-white transition text-xs font-medium"
-                >
-                  <Archive className="h-4 w-4 text-neutral-400" />
-                  <span className="hidden sm:inline">Archive</span>
-                </button>
-              </div>
-            )}
-          </div>
-
+        <div className="flex items-center justify-end border-b border-border bg-panel px-3 py-2 h-12">
           <div className="text-xs text-muted pr-2">
             {filtered.length} messages
           </div>
@@ -218,8 +104,6 @@ export default function DashboardPage() {
               key={message.id}
               message={message}
               store={stores.find((store) => store.id === message.store_id)}
-              isSelected={selectedIds.has(message.id)}
-              onSelectToggle={handleSelectToggle}
               onOpen={handleOpenMessage}
             />
           ))}

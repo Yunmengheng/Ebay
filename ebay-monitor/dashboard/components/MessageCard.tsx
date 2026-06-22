@@ -1,41 +1,20 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Archive, Mail, MailOpen, Star } from 'lucide-react';
+import { useState } from 'react';
+import { ExternalLink } from 'lucide-react';
 import type { Message, Store } from '@/lib/types';
 import { relativeTime } from '@/lib/utils';
-import { useRealtime } from './RealtimeProvider';
 
 type Props = {
   message: Message;
   store?: Store;
-  isSelected: boolean;
-  onSelectToggle: (id: string) => void;
   onOpen: (message: Message) => void;
 };
 
-export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen }: Props) {
-  const { updateMessageStatus } = useRealtime();
+export function MessageCard({ message, store, onOpen }: Props) {
   const storeName = store?.name || message.stores?.name || 'Unknown Store';
   const unread = message.status === 'unread';
-  const [isStarred, setIsStarred] = useState(false);
   const [copied, setCopied] = useState(false);
-
-  useEffect(() => {
-    const starred = localStorage.getItem(`starred-${message.id}`) === 'true';
-    setIsStarred(starred);
-  }, [message.id]);
-
-  const toggleStar = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const next = !isStarred;
-    setIsStarred(next);
-    if (next) {
-      localStorage.setItem(`starred-${message.id}`, 'true');
-    } else {
-      localStorage.removeItem(`starred-${message.id}`);
-    }
-  };
 
   const handleCopyBuyer = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -44,11 +23,9 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const rowBg = isSelected
-    ? 'bg-accent/10 border-l-2 border-accent hover:bg-accent/15'
-    : unread
-      ? 'bg-panel/50 border-l-2 border-accent hover:bg-panel/75'
-      : 'bg-transparent border-l-2 border-transparent hover:bg-panel/40';
+  const rowBg = unread
+    ? 'bg-[#101826] border-l-2 border-sky-400/90 hover:bg-[#142033] shadow-[inset_0_1px_0_rgba(96,165,250,0.08)]'
+    : 'bg-transparent border-l-2 border-transparent hover:bg-panel/40';
 
   // Shared hash function for consistent color assignment
   const nameHash = (name: string) => {
@@ -89,25 +66,20 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
   const initials = buyerName.charAt(0).toUpperCase();
   const avatarClass = AVATAR_COLORS[nameHash(buyerName) % AVATAR_COLORS.length];
   const storeBadgeClass = STORE_BADGE_COLORS[nameHash(storeName) % STORE_BADGE_COLORS.length];
+  const primaryTextClass = unread ? 'font-semibold text-slate-50' : 'font-normal text-neutral-400';
+  const previewTextClass = unread ? 'font-medium text-slate-200' : 'font-normal text-neutral-500';
+  const previewArrowClass = unread ? 'font-semibold text-sky-300/80' : 'font-normal text-neutral-600';
 
   return (
     <div
       className={`group flex items-start gap-4 px-4 py-3.5 transition-all duration-150 border-b border-border/40 last:border-b-0 cursor-pointer ${rowBg}`}
       onClick={() => onOpen(message)}
     >
-      {/* 1. Left Selection (Checkbox & Unread Dot) */}
-      <div className="flex items-center gap-3 shrink-0 mt-1" onClick={(e) => e.stopPropagation()}>
-        <input
-          type="checkbox"
-          checked={isSelected}
-          onChange={() => onSelectToggle(message.id)}
-          className="h-4 w-4 rounded border-border bg-panel text-accent focus:ring-accent cursor-pointer"
-        />
-
-        {/* Unread Blue Dot */}
+      {/* 1. Unread Dot */}
+      <div className="flex items-center shrink-0 mt-1.5">
         <div className="w-2.5 h-2.5 flex items-center justify-center shrink-0">
           {unread && (
-            <div className="w-2.5 h-2.5 rounded-full bg-accent" />
+            <div className="w-2.5 h-2.5 rounded-full bg-sky-400 shadow-[0_0_0_3px_rgba(56,189,248,0.16)]" />
           )}
         </div>
       </div>
@@ -126,7 +98,7 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
           <div className="flex items-center gap-2 min-w-0">
             <span
               onClick={handleCopyBuyer}
-              className={`text-sm ${unread ? 'font-bold text-white' : 'font-semibold text-neutral-200'} hover:text-accent transition-colors truncate cursor-pointer`}
+              className={`text-sm ${primaryTextClass} hover:text-accent transition-colors truncate cursor-pointer`}
               title="Click to copy customer name"
             >
               {buyerName}
@@ -142,38 +114,17 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
             </span>
           </div>
 
-          {/* Time text / Hover Action Icons */}
+          {/* Time text / Open-in-eBay placeholder */}
           <div className="shrink-0 min-w-[70px] flex justify-end" onClick={(e) => e.stopPropagation()}>
-            {/* Action icons visible on hover */}
             <div className="hidden group-hover:flex items-center gap-1">
-              {/* Star toggle */}
               <button
-                onClick={toggleStar}
-                title={isStarred ? 'Unstar' : 'Star'}
+                type="button"
+                onClick={(e) => e.stopPropagation()}
+                title="Open in eBay (coming soon)"
                 className="p-1 rounded hover:bg-panel text-neutral-400 hover:text-white transition-colors"
               >
-                <Star className={`h-3.5 w-3.5 ${isStarred ? 'fill-yellow-500 text-yellow-500' : 'text-neutral-500'}`} />
+                <ExternalLink className="h-3.5 w-3.5" />
               </button>
-
-              {/* Read/Unread toggle */}
-              <button
-                onClick={() => updateMessageStatus(message.id, unread ? 'read' : 'unread')}
-                title={unread ? 'Mark as read' : 'Mark as unread'}
-                className="p-1 rounded hover:bg-panel text-neutral-400 hover:text-white transition-colors"
-              >
-                {unread ? <MailOpen className="h-3.5 w-3.5" /> : <Mail className="h-3.5 w-3.5" />}
-              </button>
-
-              {/* Archive button */}
-              {message.status !== 'archived' && (
-                <button
-                  onClick={() => updateMessageStatus(message.id, 'archived')}
-                  title="Archive"
-                  className="p-1 rounded hover:bg-panel text-neutral-400 hover:text-white transition-colors"
-                >
-                  <Archive className="h-3.5 w-3.5" />
-                </button>
-              )}
             </div>
 
             {/* Normal relative time text */}
@@ -185,16 +136,16 @@ export function MessageCard({ message, store, isSelected, onSelectToggle, onOpen
 
         {/* Line 2: Subject/Listing Title */}
         {message.subject && (
-          <div className={`text-sm truncate ${unread ? 'font-medium text-neutral-100' : 'text-neutral-400'}`}>
+          <div className={`text-sm truncate ${primaryTextClass}`}>
             {message.subject}
           </div>
         )}
 
         {/* Line 3: Message Preview */}
         {message.preview && (
-          <div className="flex items-center gap-1.5 text-xs text-neutral-500 truncate">
+          <div className={`flex items-center gap-1.5 text-xs truncate ${previewTextClass}`}>
             {/* Small curved arrow icon like eBay */}
-            <span className="text-[12px] font-bold text-neutral-600 shrink-0 select-none">↳</span>
+            <span className={`text-[12px] shrink-0 select-none ${previewArrowClass}`}>↳</span>
             <span className="truncate">{message.preview}</span>
           </div>
         )}
