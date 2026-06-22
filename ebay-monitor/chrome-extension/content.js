@@ -131,7 +131,7 @@
    * Extract the eBay send-time from a row. Returns a ms timestamp.
    * Falls back to (now - rowIndex * 1s) so DOM order is preserved.
    */
-  function extractEbayTimestamp(row, rowIndex) {
+  function extractEbayTimestamp(row, rowIndex, scanAnchor = Date.now()) {
     // 1. Try <time datetime="…"> — most reliable
     const timeEl = row.querySelector('time[datetime]');
     if (timeEl) {
@@ -160,7 +160,7 @@
 
     // 4. Fallback: preserve DOM order using 1-second spacing (so row 0 > row 1 > row 2...)
     //    Use a large base offset to distinguish from "real" timestamps
-    return Date.now() - rowIndex * 1000;
+    return scanAnchor;
   }
 
   function isRowUnread(row) {
@@ -259,23 +259,50 @@
    */
   const SYSTEM_LABELS = /^(Inbox|From members|Unread from members|From eBay|Unread from eBay|Sent|Deleted|Archive|Archived|Folders|Get-back client|Create folder|Select all|Mark as read|Mark as unread|Move to|Select|Unread|Read|eBay)$/i;
 
+  function isFromEbayRow(row) {
+    return Boolean(
+      row.matches?.('[data-testid*="from-ebay" i]') ||
+      row.querySelector('[data-testid*="from-ebay" i], .card__image__ebay-avatar')
+    );
+  }
+
+  function extractSubjectText(row) {
+    const subjectNode = row.querySelector(
+      '.message-subject [aria-hidden="true"], .message-subject .ux-textspans, [class*="conversation-title" i] [aria-hidden="true"], [class*="conversation-title" i] .ux-textspans, .message-subject, [class*="conversation-title" i], [data-testid="ux-textual-display"]'
+    );
+    return text(subjectNode)
+      .replace(/^Unread,\s*/i, '')
+      .replace(/^Read,\s*/i, '')
+      .trim();
+  }
+
+  function cleanEbayText(value) {
+    return (value || '')
+      .replace(/\bUnread,\s*/gi, '')
+      .replace(/\bRead,\s*/gi, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   function extractMessageFromRow(row) {
+    const fromEbay = isFromEbayRow(row);
     const rawFragments = getRowTextFragments(row);
     
     // Clean up fragments
     const cleanFragments = rawFragments.filter(f => {
       const lf = f.toLowerCase();
+      const isAllowedEbaySender = fromEbay && f.trim().toLowerCase() === 'ebay';
       return (
         f.length >= 2 &&
         lf !== 'select' &&
         lf !== 'unread' &&
         lf !== 'read' &&
         !/^edit\d+\/\d+$/.test(lf) &&
-        !SYSTEM_LABELS.test(f.trim())
+        (isAllowedEbaySender || !SYSTEM_LABELS.test(f.trim()))
       );
     });
 
-    if (cleanFragments.length < 2) return null;
+    if (!fromEbay && cleanFragments.length < 2) return null;
 
     // Find and remove time/date fragment (search from end)
     let timeIdx = -1;
@@ -292,33 +319,55 @@
       cleanFragments.splice(timeIdx, 1);
     }
 
-    if (cleanFragments.length < 1) return null;
+    if (!fromEbay && cleanFragments.length < 1) return null;
 
     // Buyer is the first remaining fragment
-    const buyer = cleanFragments[0];
-    cleanFragments.shift();
+    let buyer = fromEbay ? 'eBay' : cleanFragments[0];
+    if (fromEbay && cleanFragments[0]?.trim().toLowerCase() === 'ebay') {
+      cleanFragments.shift();
+    } else if (!fromEbay) {
+      cleanFragments.shift();
+    }
 
     if (!buyer || buyer.length < 2) return null;
-    if (SYSTEM_LABELS.test(buyer.trim())) return null;
+    if (!fromEbay && SYSTEM_LABELS.test(buyer.trim())) return null;
 
     let subject = '';
     let preview = '';
+    const explicitSubject = extractSubjectText(row);
 
     if (cleanFragments.length === 0) {
       // Only buyer found, no preview — use empty string
       preview = '';
     } else if (cleanFragments.length === 1) {
-      // Could be subject OR preview — treat as preview (message text)
-      preview = cleanFragments[0];
+      if (fromEbay) {
+        subject = explicitSubject || cleanFragments[0];
+        preview = subject;
+      } else {
+        // Could be subject OR preview — treat as preview (message text)
+        preview = cleanFragments[0];
+      }
     } else {
       // First = subject, rest = preview body
-      subject = cleanFragments[0];
+      subject = explicitSubject || cleanFragments[0];
       preview = cleanFragments.slice(1).join(' ');
     }
 
+    if (fromEbay && !subject) {
+      subject = explicitSubject || preview;
+    }
+
+    if (fromEbay && !preview) {
+      preview = subject;
+    }
+
     // Clean up reply indicators
-    preview = preview.replace(/^[↶↷]\s*/, '').trim();
-    subject = subject.replace(/^[↶↷]\s*/, '').trim();
+    preview = cleanEbayText(preview.replace(/^[↶↷]\s*/, ''));
+    subject = cleanEbayText(subject.replace(/^[↶↷]\s*/, ''));
+
+    if (fromEbay && subject && preview === subject + subject) {
+      preview = subject;
+    }
 
     const unreadCount = parseUnread(row);
 
@@ -492,9 +541,6 @@
         return false;
       }
 
-      if (textVal.includes('ebay') && !textVal.includes('inbox')) {
-        return false;
-      }
     }
 
     return true;
@@ -529,6 +575,7 @@
 
     let sentCount = 0;
     const rows = candidateRows();
+    const scanAnchor = Date.now();
     let conversationsScanned = 0;
     const currentFingerprints = [];
 
@@ -556,13 +603,14 @@
           // Use the eBay timestamp for the message, using row position (i) as tiebreaker
           // Row 0 (top of inbox = most recent) gets the highest timestamp
           // When two messages have the same relative time, row order decides
-          const ebayTs = extractEbayTimestamp(rows[i], i);
+          const ebayTs = extractEbayTimestamp(rows[i], i, scanAnchor);
 
           // Encode row position into timestamp for stable ordering:
           // Subtract an extra offset per row-position so rows that parse to the same
           // relative time still sort correctly (row 0 > row 1 > row 2 ...).
-          // The offset is tiny (1 second per row) — well within rounding margin.
-          const stableTs = ebayTs - i * 1000;
+          // The offset is large enough to keep same-bucket rows (e.g. several "4h")
+          // in the same visual order as eBay without changing their displayed age.
+          const stableTs = ebayTs - i * 10000;
 
           chrome.runtime.sendMessage({
             type: 'NEW_MESSAGE',

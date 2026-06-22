@@ -41,7 +41,7 @@ export function MessageCard({ message, store, onOpen }: Props) {
   };
 
   const rowBg = unread
-    ? 'bg-sky-50 border-l-2 border-sky-500 hover:bg-sky-100 dark:bg-[#101826] dark:border-sky-400/90 dark:hover:bg-[#142033] dark:shadow-[inset_0_1px_0_rgba(96,165,250,0.08)]'
+    ? 'bg-blue-100/90 border-l-2 border-blue-600 hover:bg-blue-200/70 shadow-[inset_0_1px_0_rgba(37,99,235,0.16)] dark:bg-[#101826] dark:border-sky-400/90 dark:hover:bg-[#142033] dark:shadow-[inset_0_1px_0_rgba(96,165,250,0.08)]'
     : 'bg-transparent border-l-2 border-transparent hover:bg-panel/40';
 
   // Shared hash function for consistent color assignment

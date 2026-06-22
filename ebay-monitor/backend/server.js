@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { createClient } from '@supabase/supabase-js';
 
 const PORT = Number(process.env.PORT || process.env.WS_PORT || 3001);
+const DASHBOARD_MESSAGE_LIMIT = Number(process.env.DASHBOARD_MESSAGE_LIMIT || 5000);
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -76,7 +77,7 @@ async function fetchInit() {
         .from('messages')
         .select('*, stores(name)')
         .order('created_at', { ascending: false })
-        .limit(500),
+        .limit(DASHBOARD_MESSAGE_LIMIT),
       supabaseAdmin
         .from('stores')
         .select('*')
@@ -169,12 +170,14 @@ async function insertMessage(event) {
 
     const incomingTs = event.timestamp ? new Date(event.timestamp).getTime() : null;
     const existingTs = existing.created_at ? new Date(existing.created_at).getTime() : null;
-    // Update timestamp if incoming differs by more than 30 seconds
+    // Update timestamp if incoming differs enough to affect ordering.
+    // The extension encodes DOM row order into timestamps, so rescans can repair
+    // older rows that were saved before ordering fixes.
     const tsChanged = incomingTs && (!existingTs || Math.abs(incomingTs - existingTs) > 30 * 1000);
 
     const shouldUpdateContent = previewChanged || subjectChanged;
     const shouldUpdateStatus = shouldUpdateContent || (existing.status !== 'archived' && statusChanged);
-    const shouldUpdateTs = shouldUpdateContent;
+    const shouldUpdateTs = shouldUpdateContent || tsChanged;
 
     if (shouldUpdateStatus || shouldUpdateTs) {
       const updatePayload = {};

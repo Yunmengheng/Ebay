@@ -36,6 +36,7 @@ const DEFAULT_PREFERENCES: Preferences = {
 };
 
 const NOTIFICATION_RECENCY_WINDOW_MS = 30 * 60 * 1000;
+const DASHBOARD_MESSAGE_LIMIT = 5000;
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
@@ -48,20 +49,30 @@ function playChime() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
   const ctx = new AudioContextClass();
-  const oscillator = ctx.createOscillator();
-  const gain = ctx.createGain();
+  const masterGain = ctx.createGain();
+  masterGain.gain.setValueAtTime(0.0001, ctx.currentTime);
+  masterGain.gain.exponentialRampToValueAtTime(0.42, ctx.currentTime + 0.025);
+  masterGain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.62);
+  masterGain.connect(ctx.destination);
 
-  oscillator.type = 'sine';
-  oscillator.frequency.setValueAtTime(880, ctx.currentTime);
-  oscillator.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.08);
-  gain.gain.setValueAtTime(0.001, ctx.currentTime);
-  gain.gain.exponentialRampToValueAtTime(0.12, ctx.currentTime + 0.02);
-  gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+  const playTone = (frequency: number, start: number, duration: number) => {
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
 
-  oscillator.connect(gain);
-  gain.connect(ctx.destination);
-  oscillator.start();
-  oscillator.stop(ctx.currentTime + 0.24);
+    oscillator.type = 'triangle';
+    oscillator.frequency.setValueAtTime(frequency, ctx.currentTime + start);
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+    gain.gain.exponentialRampToValueAtTime(0.9, ctx.currentTime + start + 0.02);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + duration);
+
+    oscillator.connect(gain);
+    gain.connect(masterGain);
+    oscillator.start(ctx.currentTime + start);
+    oscillator.stop(ctx.currentTime + start + duration + 0.02);
+  };
+
+  playTone(1046.5, 0, 0.2);
+  playTone(1568, 0.18, 0.32);
 }
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
@@ -215,7 +226,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         : [normalized, ...current];
       return next
         .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-        .slice(0, 500);
+        .slice(0, DASHBOARD_MESSAGE_LIMIT);
     });
   }, [notify]);
 
@@ -259,7 +270,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         .from('messages')
         .select('*, stores(name)')
         .order('created_at', { ascending: false })
-        .limit(500),
+        .limit(DASHBOARD_MESSAGE_LIMIT),
       supabase.from('stores').select('*').order('last_seen', { ascending: false })
     ]);
 
