@@ -53,6 +53,7 @@ export type NotificationItem = {
   buyer: string;
   preview: string;
   createdAt: string;
+  messageCreatedAt?: string;
 };
 
 export type Preferences = {

@@ -35,6 +35,8 @@ const DEFAULT_PREFERENCES: Preferences = {
   wsUrl: process.env.NEXT_PUBLIC_WS_URL || 'wss://ebay-message-monitor-backend.onrender.com'
 };
 
+const NOTIFICATION_RECENCY_WINDOW_MS = 30 * 60 * 1000;
+
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
 
 const normalizeMessage = (message: Message): Message => ({
@@ -91,7 +93,18 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
 
     const savedNotifications = window.localStorage.getItem('ebay-monitor-notifications');
     if (savedNotifications) {
-      setNotifications(JSON.parse(savedNotifications));
+      const cutoff = Date.now() - NOTIFICATION_RECENCY_WINDOW_MS;
+      const parsed = (JSON.parse(savedNotifications) as NotificationItem[])
+        .filter((notification) => {
+          const timestamp = new Date(notification.messageCreatedAt || notification.createdAt).getTime();
+          return !Number.isNaN(timestamp) && timestamp >= cutoff;
+        })
+        .sort((a, b) =>
+          new Date(b.messageCreatedAt || b.createdAt).getTime() -
+          new Date(a.messageCreatedAt || a.createdAt).getTime()
+        );
+      setNotifications(parsed);
+      window.localStorage.setItem('ebay-monitor-notifications', JSON.stringify(parsed));
     }
 
     const savedUnseen = window.localStorage.getItem('ebay-monitor-unseen-notifications');
@@ -128,17 +141,33 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const notify = useCallback((message: Message) => {
     const storeName = message.stores?.name || stores.find((store) => store.id === message.store_id)?.name || 'eBay';
     const prefs = preferencesRef.current;
+    const messageCreatedAt = message.created_at || new Date().toISOString();
+    const messageTime = new Date(messageCreatedAt).getTime();
+
+    if (Number.isNaN(messageTime) || Date.now() - messageTime > NOTIFICATION_RECENCY_WINDOW_MS) {
+      return;
+    }
+
     const notification: NotificationItem = {
       id: `${message.id}-${Date.now()}`,
       messageId: message.id,
       storeName,
       buyer: message.buyer,
       preview: message.preview,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      messageCreatedAt
     };
 
     setNotifications((current) => {
-      const next = [notification, ...current].slice(0, 100);
+      const next = [
+        notification,
+        ...current.filter((item) => item.messageId !== message.id)
+      ]
+        .sort((a, b) =>
+          new Date(b.messageCreatedAt || b.createdAt).getTime() -
+          new Date(a.messageCreatedAt || a.createdAt).getTime()
+        )
+        .slice(0, 100);
       saveNotifications(next);
       return next;
     });

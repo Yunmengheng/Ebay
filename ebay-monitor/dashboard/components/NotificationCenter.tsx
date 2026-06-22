@@ -96,7 +96,9 @@ export function NotificationCenter() {
                         </div>
                         <div className="mt-1 text-sm text-soft">New message from {notification.buyer}</div>
                       </div>
-                      <span className="shrink-0 text-xs text-muted">{relativeTime(notification.createdAt)}</span>
+                      <span className="shrink-0 text-xs text-muted">
+                        {relativeTime(notification.messageCreatedAt || notification.createdAt)}
+                      </span>
                     </div>
                     <div className="mt-1 line-clamp-2 text-sm text-muted">{notification.preview}</div>
                   </button>
