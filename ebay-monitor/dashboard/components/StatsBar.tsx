@@ -36,10 +36,12 @@ const formatLogTime = (timestamp: string) => {
 
 export function StatsBar({ messages, stores, storeLogs }: Props) {
   const [storeMonitorOpen, setStoreMonitorOpen] = useState(false);
+  const [unreadBreakdownOpen, setUnreadBreakdownOpen] = useState(false);
   const [selectedStoreId, setSelectedStoreId] = useState<string | null>(null);
   const today = startOfTodayIso();
   const todayCount = messages.filter((message) => message.created_at >= today).length;
-  const unread = messages.reduce((total, message) => total + (message.status === 'unread' ? message.unread || 1 : 0), 0);
+  const todayUnreadMessages = messages.filter((message) => message.created_at >= today && message.status === 'unread');
+  const unreadToday = todayUnreadMessages.length;
   const onlineStores = stores.filter((store) => store.online).length;
   const offlineStores = stores.filter((store) => !store.online);
   const countsByStore = messages.reduce<Record<string, number>>((acc, message) => {
@@ -51,10 +53,27 @@ export function StatsBar({ messages, stores, storeLogs }: Props) {
 
   const items = [
     { label: 'Messages today', value: todayCount, icon: Inbox },
-    { label: 'Most active store', value: activeStore, icon: Activity },
-    { label: 'Total unread', value: unread, icon: Radio }
+    { label: 'Most active store', value: activeStore, icon: Activity }
   ];
   const hasOfflineStores = offlineStores.length > 0;
+  const unreadByStore = useMemo(() => {
+    const grouped = todayUnreadMessages.reduce<Record<string, { store: Store | null; messages: Message[] }>>(
+      (acc, message) => {
+        const store = stores.find((item) => item.id === message.store_id) || null;
+        const key = message.store_id;
+        if (!acc[key]) {
+          acc[key] = { store, messages: [] };
+        }
+        acc[key].messages.push(message);
+        return acc;
+      },
+      {}
+    );
+
+    return Object.entries(grouped)
+      .map(([storeId, value]) => ({ storeId, ...value, count: value.messages.length }))
+      .sort((a, b) => b.count - a.count);
+  }, [stores, todayUnreadMessages]);
   const selectedStore = useMemo(() => {
     if (!stores.length) return null;
     return stores.find((store) => store.id === selectedStoreId) || stores[0];
@@ -85,6 +104,22 @@ export function StatsBar({ messages, stores, storeLogs }: Props) {
             </div>
           </div>
         ))}
+
+        <button
+          type="button"
+          onClick={() => setUnreadBreakdownOpen(true)}
+          className="rounded-card border border-border bg-surface p-4 text-left transition hover:border-accent/70 focus:outline-none focus:ring-2 focus:ring-accent/40"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-xs uppercase tracking-normal text-muted">Unread today</div>
+              <div className="mt-2 truncate text-xl font-semibold text-foreground">{unreadToday}</div>
+            </div>
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border bg-panel text-accent">
+              <Radio className="h-4 w-4" />
+            </div>
+          </div>
+        </button>
 
         <button
           type="button"
@@ -143,6 +178,85 @@ export function StatsBar({ messages, stores, storeLogs }: Props) {
           </div>
         </button>
       </section>
+
+      {unreadBreakdownOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setUnreadBreakdownOpen(false);
+          }}
+        >
+          <div className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-card border border-border bg-surface shadow-2xl">
+            <div className="flex items-center justify-between gap-3 border-b border-border bg-panel px-4 py-3">
+              <div>
+                <h2 className="text-base font-semibold text-foreground">Unread today</h2>
+                <p className="text-xs text-muted">
+                  {unreadToday} unread conversation{unreadToday === 1 ? '' : 's'} from today, grouped by store.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setUnreadBreakdownOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-md border border-border text-soft transition hover:text-foreground"
+                aria-label="Close unread breakdown"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="min-h-0 overflow-y-auto p-4">
+              {unreadByStore.length ? (
+                <div className="space-y-3">
+                  {unreadByStore.map((entry) => (
+                    <div key={entry.storeId} className="rounded-md border border-border bg-panel p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">
+                            {entry.store?.name || 'Unknown Store'}
+                          </div>
+                          <div className="mt-1 text-xs text-muted">
+                            {entry.messages.length} conversation{entry.messages.length === 1 ? '' : 's'}
+                          </div>
+                        </div>
+                        <div className="rounded-full border border-accent/30 bg-accent/10 px-2.5 py-1 text-sm font-semibold text-accent">
+                          {entry.count}
+                        </div>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {entry.messages.slice(0, 5).map((message) => (
+                          <div key={message.id} className="rounded border border-border/70 bg-surface px-3 py-2">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="min-w-0 truncate text-sm font-medium text-foreground">
+                                {message.buyer}
+                              </div>
+                              <div className="shrink-0 text-xs text-muted">{relativeTime(message.created_at)}</div>
+                            </div>
+                            <div className="mt-1 truncate text-xs text-muted">
+                              {message.subject || message.preview || 'No preview available'}
+                            </div>
+                          </div>
+                        ))}
+                        {entry.messages.length > 5 && (
+                          <div className="text-xs text-muted">+{entry.messages.length - 5} more conversations</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="grid min-h-[220px] place-items-center rounded-md border border-dashed border-border bg-panel p-6 text-center">
+                  <div>
+                    <CheckCircle2 className="mx-auto h-8 w-8 text-success" />
+                    <div className="mt-3 text-sm font-semibold text-foreground">No unread messages today</div>
+                    <p className="mt-1 text-sm text-muted">Today&apos;s unread breakdown will appear here.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {storeMonitorOpen && (
         <div
