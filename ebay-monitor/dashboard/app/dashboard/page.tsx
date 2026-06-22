@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useState, useEffect, useCallback } from 'react';
+import { Suspense, useMemo, useState, useEffect, useCallback } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Circle } from 'lucide-react';
 import { MessageCard } from '@/components/MessageCard';
 import { MessageDetailPanel } from '@/components/MessageDetailPanel';
@@ -10,8 +11,10 @@ import { ToastNotification } from '@/components/ToastNotification';
 import { useRealtime } from '@/components/RealtimeProvider';
 import type { Message } from '@/lib/types';
 
-export default function DashboardPage() {
-  const { messages, stores, wsStatus, supabaseStatus, supabaseError } = useRealtime();
+function DashboardContent() {
+  const { messages, stores, storeLogs, wsStatus, supabaseStatus, supabaseError } = useRealtime();
+  const router = useRouter();
+  const searchParams = useSearchParams();
   const [storeId, setStoreId] = useState('all');
   const [status, setStatus] = useState('all');
   const [query, setQuery] = useState('');
@@ -38,19 +41,32 @@ export default function DashboardPage() {
     if (updated) setOpenMessage(updated);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    const messageId = searchParams.get('message');
+    if (!messageId) return;
+
+    const message = messages.find((item) => item.id === messageId);
+    if (message) {
+      setOpenMessage(message);
+    }
+  }, [messages, searchParams]);
+
   const handleOpenMessage = useCallback((message: Message) => {
     setOpenMessage(message);
   }, []);
 
   const handleCloseMessage = useCallback(() => {
     setOpenMessage(null);
-  }, []);
+    if (searchParams.get('message')) {
+      router.replace('/dashboard', { scroll: false });
+    }
+  }, [router, searchParams]);
 
   return (
     <div className="space-y-5">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-semibold tracking-normal text-white">Live inbox feed</h1>
+          <h1 className="text-2xl font-semibold tracking-normal text-foreground">Live inbox feed</h1>
           <p className="mt-1 text-sm text-muted">WebSocket primary updates with Supabase Realtime sync.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
@@ -71,7 +87,7 @@ export default function DashboardPage() {
 
       {supabaseStatus === 'setup_required' && (
         <section className="rounded-card border border-danger/40 bg-danger/10 p-4 text-sm text-red-100">
-          <div className="font-semibold text-white">Supabase tables are not ready yet.</div>
+          <div className="font-semibold text-foreground">Supabase tables are not ready yet.</div>
           <p className="mt-1 text-red-100/80">
             Run <span className="font-mono">supabase/migrations/001_init.sql</span> in your Supabase SQL editor, then
             refresh this page. Current Supabase response: {supabaseError}
@@ -79,7 +95,7 @@ export default function DashboardPage() {
         </section>
       )}
 
-      <StatsBar messages={messages} stores={stores} />
+      <StatsBar messages={messages} stores={stores} storeLogs={storeLogs} />
       <StoreFilter
         stores={stores}
         storeId={storeId}
@@ -127,5 +143,13 @@ export default function DashboardPage() {
         />
       )}
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={null}>
+      <DashboardContent />
+    </Suspense>
   );
 }

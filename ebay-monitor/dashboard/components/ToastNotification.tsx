@@ -11,16 +11,16 @@ export function ToastNotification() {
       {toasts.map((toast) => (
         <div
           key={toast.id}
-          className="animate-toast-in rounded-card border border-border bg-panel p-4 shadow-2xl shadow-black/30"
+          className="animate-toast-in rounded-card border border-border bg-panel p-4 shadow-2xl shadow-black/20"
         >
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              <div className="text-sm font-semibold text-white">{toast.storeName}</div>
-              <div className="mt-1 text-sm text-neutral-200">New message from {toast.buyer}</div>
+              <div className="text-sm font-semibold text-foreground">{toast.storeName}</div>
+              <div className="mt-1 text-sm text-soft">New message from {toast.buyer}</div>
               <div className="mt-1 line-clamp-2 text-sm text-muted">{toast.preview}</div>
             </div>
             <button
-              className="rounded-md p-1 text-muted transition hover:bg-surface hover:text-white"
+              className="rounded-md p-1 text-muted transition hover:bg-surface hover:text-foreground"
               onClick={() => dismissToast(toast.id)}
               aria-label="Dismiss toast"
             >
@@ -32,4 +32,3 @@ export function ToastNotification() {
     </div>
   );
 }
-

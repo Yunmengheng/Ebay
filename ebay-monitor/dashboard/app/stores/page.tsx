@@ -25,18 +25,18 @@ function DeleteConfirmModal({
       style={{ backgroundColor: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)' }}
       onClick={(e) => e.target === e.currentTarget && onCancel()}
     >
-      <div className="relative w-full max-w-md mx-4 rounded-2xl border border-red-500/30 bg-[#111216] shadow-2xl animate-slide-in-top">
+      <div className="relative w-full max-w-md mx-4 rounded-2xl border border-red-500/30 bg-surface shadow-2xl animate-slide-in-top">
         {/* Header */}
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-border/60">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-full bg-red-500/15 border border-red-500/30">
               <Trash2 className="h-4 w-4 text-red-400" />
             </div>
-            <h2 className="text-base font-semibold text-white">Remove Store</h2>
+            <h2 className="text-base font-semibold text-foreground">Remove Store</h2>
           </div>
           <button
             onClick={onCancel}
-            className="p-1.5 rounded-md hover:bg-surface text-neutral-400 hover:text-white transition-colors"
+            className="p-1.5 rounded-md hover:bg-panel text-muted hover:text-foreground transition-colors"
           >
             <X className="h-4 w-4" />
           </button>
@@ -53,16 +53,16 @@ function DeleteConfirmModal({
 
           <div className="rounded-xl border border-border/60 bg-surface/50 px-4 py-3 space-y-1.5">
             <div className="flex justify-between text-sm">
-              <span className="text-neutral-400">Store name</span>
-              <span className="font-semibold text-white truncate max-w-[180px]">{store.name}</span>
+              <span className="text-muted">Store name</span>
+              <span className="font-semibold text-foreground truncate max-w-[180px]">{store.name}</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-neutral-400">Messages</span>
+              <span className="text-muted">Messages</span>
               <span className="font-semibold text-red-400">{messageCount} will be deleted</span>
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-neutral-400">Status</span>
-              <span className={`font-semibold ${store.online ? 'text-green-400' : 'text-neutral-400'}`}>
+              <span className="text-muted">Status</span>
+              <span className={`font-semibold ${store.online ? 'text-green-500 dark:text-green-400' : 'text-muted'}`}>
                 {store.online ? 'Online' : 'Offline'}
               </span>
             </div>
@@ -74,7 +74,7 @@ function DeleteConfirmModal({
           <button
             onClick={onCancel}
             disabled={isDeleting}
-            className="px-4 py-2 rounded-lg border border-border text-sm text-neutral-300 hover:bg-surface hover:text-white transition-colors disabled:opacity-50"
+            className="px-4 py-2 rounded-lg border border-border text-sm text-soft hover:bg-panel hover:text-foreground transition-colors disabled:opacity-50"
           >
             Cancel
           </button>
@@ -127,7 +127,7 @@ export default function StoresPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-2xl font-semibold tracking-normal text-white">Stores</h1>
+        <h1 className="text-2xl font-semibold tracking-normal text-foreground">Stores</h1>
         <p className="mt-1 text-sm text-muted">Chrome profiles reporting into the unified monitor.</p>
       </div>
 
@@ -135,7 +135,7 @@ export default function StoresPage() {
         <div className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
           <AlertTriangle className="h-4 w-4 shrink-0 text-red-400" />
           {error}
-          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-white transition-colors">
+          <button onClick={() => setError(null)} className="ml-auto text-red-400 hover:text-foreground transition-colors">
             <X className="h-4 w-4" />
           </button>
         </div>
@@ -166,10 +166,10 @@ export default function StoresPage() {
                       store.online ? 'animate-pulse text-success' : 'text-danger'
                     }`}
                   />
-                  <span className="truncate font-semibold text-white">{store.name}</span>
+                  <span className="truncate font-semibold text-foreground">{store.name}</span>
                 </div>
                 <button
-                  className="mt-2 inline-flex max-w-full items-center gap-2 truncate rounded-md border border-border px-2 py-1 text-xs text-muted transition hover:text-white"
+                  className="mt-2 inline-flex max-w-full items-center gap-2 truncate rounded-md border border-border px-2 py-1 text-xs text-muted transition hover:text-foreground"
                   onClick={() => navigator.clipboard.writeText(store.id)}
                 >
                   <Copy className="h-3.5 w-3.5 shrink-0" />
@@ -178,7 +178,7 @@ export default function StoresPage() {
               </div>
 
               {/* Message count */}
-              <div className="text-sm text-neutral-300">
+              <div className="text-sm text-soft">
                 {storeMessages.length}
                 {lastMessage ? (
                   <span className="block text-xs text-muted">Last: {relativeTime(lastMessage.created_at)}</span>
@@ -186,7 +186,7 @@ export default function StoresPage() {
               </div>
 
               {/* Last seen */}
-              <div className="text-sm text-neutral-300">{relativeTime(store.last_seen)}</div>
+              <div className="text-sm text-soft">{relativeTime(store.last_seen)}</div>
 
               {/* Delete button */}
               <div className="flex items-center justify-end">

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
 import type { Message, Store } from '@/lib/types';
 import { relativeTime } from '@/lib/utils';
 
@@ -15,6 +15,11 @@ export function MessageCard({ message, store, onOpen }: Props) {
   const storeName = store?.name || message.stores?.name || 'Unknown Store';
   const unread = message.status === 'unread';
   const [copied, setCopied] = useState(false);
+  const [urgent, setUrgent] = useState(false);
+
+  useEffect(() => {
+    setUrgent(localStorage.getItem(`urgent-${message.fingerprint}`) === 'true');
+  }, [message.fingerprint]);
 
   const handleCopyBuyer = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -23,8 +28,19 @@ export function MessageCard({ message, store, onOpen }: Props) {
     setTimeout(() => setCopied(false), 1500);
   };
 
+  const toggleUrgent = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const next = !urgent;
+    setUrgent(next);
+    if (next) {
+      localStorage.setItem(`urgent-${message.fingerprint}`, 'true');
+    } else {
+      localStorage.removeItem(`urgent-${message.fingerprint}`);
+    }
+  };
+
   const rowBg = unread
-    ? 'bg-[#101826] border-l-2 border-sky-400/90 hover:bg-[#142033] shadow-[inset_0_1px_0_rgba(96,165,250,0.08)]'
+    ? 'bg-sky-50 border-l-2 border-sky-500 hover:bg-sky-100 dark:bg-[#101826] dark:border-sky-400/90 dark:hover:bg-[#142033] dark:shadow-[inset_0_1px_0_rgba(96,165,250,0.08)]'
     : 'bg-transparent border-l-2 border-transparent hover:bg-panel/40';
 
   // Shared hash function for consistent color assignment
@@ -48,27 +64,27 @@ export function MessageCard({ message, store, onOpen }: Props) {
     'bg-teal-500/20 text-teal-400 border-teal-500/30',
   ];
 
-  // Store badge colors — more vibrant/saturated so they stand out
+  // Store badge colors use darker text in light mode for readability, with softer neon tones in dark mode.
   const STORE_BADGE_COLORS = [
-    'bg-violet-500/20 text-violet-300 border-violet-500/40 ring-violet-500/20',
-    'bg-sky-500/20 text-sky-300 border-sky-500/40 ring-sky-500/20',
-    'bg-emerald-500/20 text-emerald-300 border-emerald-500/40 ring-emerald-500/20',
-    'bg-orange-500/20 text-orange-300 border-orange-500/40 ring-orange-500/20',
-    'bg-rose-500/20 text-rose-300 border-rose-500/40 ring-rose-500/20',
-    'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 ring-cyan-500/20',
-    'bg-fuchsia-500/20 text-fuchsia-300 border-fuchsia-500/40 ring-fuchsia-500/20',
-    'bg-amber-500/20 text-amber-300 border-amber-500/40 ring-amber-500/20',
-    'bg-lime-500/20 text-lime-300 border-lime-500/40 ring-lime-500/20',
-    'bg-teal-500/20 text-teal-300 border-teal-500/40 ring-teal-500/20',
+    'bg-violet-100 text-violet-800 border-violet-300 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:border-violet-500/40 dark:ring-violet-500/20',
+    'bg-sky-100 text-sky-800 border-sky-300 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:border-sky-500/40 dark:ring-sky-500/20',
+    'bg-emerald-100 text-emerald-800 border-emerald-300 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:border-emerald-500/40 dark:ring-emerald-500/20',
+    'bg-orange-100 text-orange-800 border-orange-300 ring-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:border-orange-500/40 dark:ring-orange-500/20',
+    'bg-rose-100 text-rose-800 border-rose-300 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:border-rose-500/40 dark:ring-rose-500/20',
+    'bg-cyan-100 text-cyan-800 border-cyan-300 ring-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:border-cyan-500/40 dark:ring-cyan-500/20',
+    'bg-fuchsia-100 text-fuchsia-800 border-fuchsia-300 ring-fuchsia-200 dark:bg-fuchsia-500/20 dark:text-fuchsia-300 dark:border-fuchsia-500/40 dark:ring-fuchsia-500/20',
+    'bg-amber-100 text-amber-900 border-amber-300 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:border-amber-500/40 dark:ring-amber-500/20',
+    'bg-lime-100 text-lime-900 border-lime-300 ring-lime-200 dark:bg-lime-500/20 dark:text-lime-300 dark:border-lime-500/40 dark:ring-lime-500/20',
+    'bg-teal-100 text-teal-800 border-teal-300 ring-teal-200 dark:bg-teal-500/20 dark:text-teal-300 dark:border-teal-500/40 dark:ring-teal-500/20',
   ];
 
   const buyerName = message.buyer || 'Unknown';
   const initials = buyerName.charAt(0).toUpperCase();
   const avatarClass = AVATAR_COLORS[nameHash(buyerName) % AVATAR_COLORS.length];
   const storeBadgeClass = STORE_BADGE_COLORS[nameHash(storeName) % STORE_BADGE_COLORS.length];
-  const primaryTextClass = unread ? 'font-semibold text-slate-50' : 'font-normal text-neutral-400';
-  const previewTextClass = unread ? 'font-medium text-slate-200' : 'font-normal text-neutral-500';
-  const previewArrowClass = unread ? 'font-semibold text-sky-300/80' : 'font-normal text-neutral-600';
+  const primaryTextClass = unread ? 'font-semibold text-slate-950 dark:text-slate-50' : 'font-normal text-muted';
+  const previewTextClass = unread ? 'font-medium text-slate-700 dark:text-slate-200' : 'font-normal text-muted';
+  const previewArrowClass = unread ? 'font-semibold text-sky-600 dark:text-sky-300/80' : 'font-normal text-muted';
 
   return (
     <div
@@ -114,21 +130,25 @@ export function MessageCard({ message, store, onOpen }: Props) {
             </span>
           </div>
 
-          {/* Time text / Open-in-eBay placeholder */}
-          <div className="shrink-0 min-w-[70px] flex justify-end" onClick={(e) => e.stopPropagation()}>
-            <div className="hidden group-hover:flex items-center gap-1">
+          {/* Time text / Urgency marker */}
+          <div className="shrink-0 min-w-[116px] flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+            <div className={`${urgent ? 'flex' : 'hidden group-hover:flex'} items-center gap-1`}>
               <button
                 type="button"
-                onClick={(e) => e.stopPropagation()}
-                title="Open in eBay (coming soon)"
-                className="p-1 rounded hover:bg-panel text-neutral-400 hover:text-white transition-colors"
+                onClick={toggleUrgent}
+                title={urgent ? 'Marked urgent - click to mark not urgent' : 'Not urgent - click to mark urgent'}
+                className={`grid h-8 w-8 place-items-center rounded-lg transition-colors ${
+                  urgent
+                    ? 'bg-red-500/15 text-red-500 hover:bg-red-500/20'
+                    : 'text-muted hover:bg-panel hover:text-red-500'
+                }`}
               >
-                <ExternalLink className="h-3.5 w-3.5" />
+                <AlertTriangle className="h-5 w-5" />
               </button>
             </div>
 
             {/* Normal relative time text */}
-            <span className="block group-hover:hidden text-xs text-muted whitespace-nowrap">
+            <span className="text-xs text-muted whitespace-nowrap">
               {relativeTime(message.created_at)}
             </span>
           </div>

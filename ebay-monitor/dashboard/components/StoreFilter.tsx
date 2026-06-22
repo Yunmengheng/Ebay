@@ -54,7 +54,7 @@ function StoreDropdown({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 text-sm text-white outline-none transition hover:border-accent focus-visible:border-accent"
+        className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-border bg-surface px-3 text-sm text-foreground outline-none transition hover:border-accent focus-visible:border-accent"
         aria-haspopup="listbox"
         aria-expanded={open}
       >
@@ -68,7 +68,7 @@ function StoreDropdown({
       {open && (
         <ul
           role="listbox"
-          className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[180px] overflow-hidden rounded-lg border border-border bg-[#1a1d23] shadow-2xl shadow-black/60"
+          className="absolute left-0 top-[calc(100%+6px)] z-50 w-full min-w-[180px] overflow-hidden rounded-lg border border-border bg-surface shadow-2xl shadow-black/20 dark:shadow-black/60"
         >
           {options.map((option) => {
             const selected = storeId === option.id;
@@ -81,7 +81,7 @@ function StoreDropdown({
                 className={`flex cursor-pointer items-center justify-between gap-3 px-3 py-2.5 text-sm transition-colors ${
                   selected
                     ? 'bg-accent/15 text-accent'
-                    : 'text-neutral-200 hover:bg-panel hover:text-white'
+                    : 'text-soft hover:bg-panel hover:text-foreground'
                 }`}
               >
                 <span className="truncate">{option.name}</span>
@@ -120,7 +120,7 @@ export function StoreFilter({
             key={item.value}
             onClick={() => onStatusChange(item.value)}
             className={`flex flex-1 items-center justify-center gap-2 rounded px-3 text-sm transition ${
-              status === item.value ? 'bg-panel text-white' : 'text-muted hover:text-white'
+              status === item.value ? 'bg-panel text-foreground' : 'text-muted hover:text-foreground'
             }`}
           >
             <item.icon className="h-4 w-4" />
@@ -141,7 +141,7 @@ export function StoreFilter({
           value={query}
           onChange={(event) => onQueryChange(event.target.value)}
           placeholder="Search customer name or message..."
-          className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm text-white outline-none transition placeholder:text-neutral-600 focus:border-accent"
+          className="h-10 w-full rounded-md border border-border bg-surface pl-9 pr-3 text-sm text-foreground outline-none transition placeholder:text-muted/70 focus:border-accent"
         />
       </label>
     </section>

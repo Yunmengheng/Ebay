@@ -7,11 +7,13 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        background: '#0a0a0a',
-        surface: '#111111',
-        panel: '#171717',
-        border: '#2a2a2a',
-        muted: '#a3a3a3',
+        background: 'rgb(var(--color-background) / <alpha-value>)',
+        surface: 'rgb(var(--color-surface) / <alpha-value>)',
+        panel: 'rgb(var(--color-panel) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        foreground: 'rgb(var(--color-foreground) / <alpha-value>)',
+        soft: 'rgb(var(--color-soft) / <alpha-value>)',
+        muted: 'rgb(var(--color-muted) / <alpha-value>)',
         accent: '#3b82f6',
         success: '#22c55e',
         danger: '#ef4444'
@@ -40,4 +42,3 @@ const config: Config = {
 };
 
 export default config;
-

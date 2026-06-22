@@ -3,11 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { supabase } from '@/lib/supabase';
 import { connectWebSocket, type ServerEvent } from '@/lib/websocket';
-import type { Message, Preferences, Store, Toast } from '@/lib/types';
+import type { Message, NotificationItem, Preferences, Store, StoreLog, Toast } from '@/lib/types';
 
 type RealtimeContextValue = {
   messages: Message[];
   stores: Store[];
+  storeLogs: StoreLog[];
+  notifications: NotificationItem[];
+  unseenNotifications: number;
   toasts: Toast[];
   preferences: Preferences;
   wsStatus: 'connected' | 'connecting' | 'disconnected';
@@ -15,7 +18,10 @@ type RealtimeContextValue = {
   supabaseError: string | null;
   setPreferences: (preferences: Preferences) => void;
   dismissToast: (id: string) => void;
+  markNotificationsSeen: () => void;
+  clearNotifications: () => void;
   updateMessageStatus: (id: string, status: Message['status']) => Promise<void>;
+  updateMessageNote: (id: string, note: string) => Promise<void>;
   deleteStore: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
 };
@@ -57,6 +63,9 @@ function playChime() {
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
+  const [storeLogs, setStoreLogs] = useState<StoreLog[]>([]);
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unseenNotifications, setUnseenNotifications] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [wsStatus, setWsStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
   const [supabaseStatus, setSupabaseStatus] =
@@ -76,6 +85,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     if (saved) {
       setPreferencesState({ ...DEFAULT_PREFERENCES, ...JSON.parse(saved) });
     }
+
+    const savedNotifications = window.localStorage.getItem('ebay-monitor-notifications');
+    if (savedNotifications) {
+      setNotifications(JSON.parse(savedNotifications));
+    }
+
+    const savedUnseen = window.localStorage.getItem('ebay-monitor-unseen-notifications');
+    if (savedUnseen) {
+      setUnseenNotifications(Number(savedUnseen) || 0);
+    }
   }, []);
 
   const setPreferences = useCallback((next: Preferences) => {
@@ -87,13 +106,48 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     setToasts((current) => current.filter((toast) => toast.id !== id));
   }, []);
 
+  const saveNotifications = useCallback((next: NotificationItem[]) => {
+    window.localStorage.setItem('ebay-monitor-notifications', JSON.stringify(next));
+  }, []);
+
+  const markNotificationsSeen = useCallback(() => {
+    setUnseenNotifications(0);
+    window.localStorage.setItem('ebay-monitor-unseen-notifications', '0');
+  }, []);
+
+  const clearNotifications = useCallback(() => {
+    setNotifications([]);
+    setUnseenNotifications(0);
+    window.localStorage.setItem('ebay-monitor-notifications', '[]');
+    window.localStorage.setItem('ebay-monitor-unseen-notifications', '0');
+  }, []);
+
   const notify = useCallback((message: Message) => {
     const storeName = message.stores?.name || stores.find((store) => store.id === message.store_id)?.name || 'eBay';
     const prefs = preferencesRef.current;
+    const notification: NotificationItem = {
+      id: `${message.id}-${Date.now()}`,
+      messageId: message.id,
+      storeName,
+      buyer: message.buyer,
+      preview: message.preview,
+      createdAt: new Date().toISOString()
+    };
+
+    setNotifications((current) => {
+      const next = [notification, ...current].slice(0, 100);
+      saveNotifications(next);
+      return next;
+    });
+    setUnseenNotifications((current) => {
+      const next = Math.min(current + 1, 99);
+      window.localStorage.setItem('ebay-monitor-unseen-notifications', String(next));
+      return next;
+    });
 
     if (prefs.toastNotifications) {
       const toast: Toast = {
-        id: `${message.id}-${Date.now()}`,
+        id: notification.id,
         storeName,
         buyer: message.buyer,
         preview: message.preview
@@ -110,7 +164,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         tag: message.id
       });
     }
-  }, [dismissToast, stores]);
+  }, [dismissToast, saveNotifications, stores]);
 
   const mergeMessage = useCallback((message: Message, shouldNotify = false) => {
     const normalized = normalizeMessage(message);
@@ -142,6 +196,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       // Always keep stores sorted alphabetically so the dropdown never reorders
       return next.sort((a, b) => a.name.localeCompare(b.name));
     });
+  }, []);
+
+  const addStoreLog = useCallback((log: StoreLog) => {
+    setStoreLogs((current) => [log, ...current].slice(0, 300));
   }, []);
 
   const refreshData = useCallback(async () => {
@@ -196,6 +254,14 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
             stores: { name: event.storeName }
           }) as Message);
         mergeMessage(message, true);
+        addStoreLog({
+          id: `${event.storeId}-${event.timestamp}-new-message`,
+          storeId: event.storeId,
+          storeName: event.storeName,
+          level: 'success',
+          message: `New message from ${event.buyer}`,
+          timestamp: event.timestamp
+        });
       }
 
       if (event.type === 'STORE_STATUS') {
@@ -205,6 +271,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           online: event.online,
           last_seen: event.lastSeen
         });
+      }
+
+      if (event.type === 'STORE_LOG') {
+        addStoreLog(event);
       }
 
       if (event.type === 'SYNC_INBOX') {
@@ -238,7 +308,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     };
 
     return connectWebSocket(preferences.wsUrl, handleEvent, stableSetWsStatus);
-  }, [mergeMessage, mergeStore, preferences.wsUrl]);
+  }, [addStoreLog, mergeMessage, mergeStore, preferences.wsUrl]);
 
   useEffect(() => {
     const messageChannel = supabase
@@ -294,6 +364,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData]);
 
+  const updateMessageNote = useCallback(async (id: string, note: string) => {
+    setMessages((current) => current.map((message) => (message.id === id ? { ...message, note } : message)));
+    const { error } = await supabase.from('messages').update({ note }).eq('id', id);
+    if (error) {
+      await refreshData();
+      throw error;
+    }
+  }, [refreshData]);
+
   const deleteStore = useCallback(async (id: string) => {
     // Optimistically remove from UI immediately
     setStores((current) => current.filter((s) => s.id !== id));
@@ -310,6 +389,9 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     () => ({
       messages,
       stores,
+      storeLogs,
+      notifications,
+      unseenNotifications,
       toasts,
       preferences,
       wsStatus,
@@ -317,13 +399,19 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       supabaseError,
       setPreferences,
       dismissToast,
+      markNotificationsSeen,
+      clearNotifications,
       updateMessageStatus,
+      updateMessageNote,
       deleteStore,
       refreshData
     }),
     [
       messages,
       stores,
+      storeLogs,
+      notifications,
+      unseenNotifications,
       toasts,
       preferences,
       wsStatus,
@@ -331,7 +419,10 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       supabaseError,
       setPreferences,
       dismissToast,
+      markNotificationsSeen,
+      clearNotifications,
       updateMessageStatus,
+      updateMessageNote,
       deleteStore,
       refreshData
     ]

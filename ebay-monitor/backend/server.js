@@ -55,6 +55,20 @@ const broadcastDashboards = (payload) => {
   dashboards.forEach((client) => send(client, payload));
 };
 
+const broadcastStoreLog = ({ storeId, storeName, level = 'info', message }) => {
+  if (!storeId) return;
+  const timestamp = new Date().toISOString();
+  broadcastDashboards({
+    type: 'STORE_LOG',
+    id: `${storeId}:${timestamp}:${Math.random().toString(36).slice(2, 8)}`,
+    storeId,
+    storeName: storeName || 'Unknown eBay Store',
+    level,
+    message,
+    timestamp
+  });
+};
+
 async function fetchInit() {
   const [{ data: messages, error: messageError }, { data: stores, error: storeError }] =
     await Promise.all([
@@ -255,6 +269,12 @@ async function syncInbox(event) {
   const { error } = await query;
   if (error) {
     console.error(`Failed to delete stale messages for store ${storeId}:`, error.message);
+    broadcastStoreLog({
+      storeId,
+      storeName,
+      level: 'error',
+      message: `Inbox sync failed: ${error.message}`
+    });
     throw error;
   }
 
@@ -262,6 +282,12 @@ async function syncInbox(event) {
     type: 'SYNC_INBOX',
     storeId,
     fingerprints
+  });
+  broadcastStoreLog({
+    storeId,
+    storeName,
+    level: 'info',
+    message: `Inbox sync completed (${fingerprints.length} active conversations)`
   });
 }
 
@@ -287,6 +313,12 @@ async function markOffline(storeId) {
     storeName: data?.name || 'Unknown eBay Store',
     online: false,
     lastSeen
+  });
+  broadcastStoreLog({
+    storeId,
+    storeName: data?.name || 'Unknown eBay Store',
+    level: 'warning',
+    message: 'Extension disconnected'
   });
 }
 
@@ -316,6 +348,12 @@ wss.on('connection', async (ws, request) => {
         ws.storeId = event.storeId;
         extensions.set(event.storeId, ws);
         await upsertStore(event.storeId, event.storeName);
+        broadcastStoreLog({
+          storeId: event.storeId,
+          storeName: event.storeName,
+          level: 'success',
+          message: 'Extension registered and connected'
+        });
         return;
       }
 
@@ -324,6 +362,25 @@ wss.on('connection', async (ws, request) => {
         ws.storeId = event.storeId;
         extensions.set(event.storeId, ws);
         await upsertStore(event.storeId, event.storeName);
+        broadcastStoreLog({
+          storeId: event.storeId,
+          storeName: event.storeName,
+          level: 'info',
+          message: 'Heartbeat received'
+        });
+        return;
+      }
+
+      if (event.type === 'EXTENSION_LOG') {
+        ws.role = 'extension';
+        ws.storeId = event.storeId;
+        extensions.set(event.storeId, ws);
+        broadcastStoreLog({
+          storeId: event.storeId,
+          storeName: event.storeName,
+          level: event.level || 'info',
+          message: event.message || 'Extension activity'
+        });
         return;
       }
 
@@ -332,6 +389,12 @@ wss.on('connection', async (ws, request) => {
         ws.storeId = event.storeId;
         extensions.set(event.storeId, ws);
         await insertMessage(event);
+        broadcastStoreLog({
+          storeId: event.storeId,
+          storeName: event.storeName,
+          level: 'success',
+          message: `Message scan update: ${event.buyer || 'Unknown buyer'}`
+        });
         return;
       }
 
@@ -344,6 +407,12 @@ wss.on('connection', async (ws, request) => {
       }
     } catch (error) {
       console.error(`Failed to process ${event.type}:`, error.message);
+      broadcastStoreLog({
+        storeId: event.storeId || ws.storeId,
+        storeName: event.storeName,
+        level: 'error',
+        message: `${event.type} failed: ${error.message}`
+      });
       send(ws, { type: 'ERROR', message: error.message });
     }
   });
@@ -371,4 +440,3 @@ setInterval(() => {
 server.listen(PORT, () => {
   console.log(`eBay Message Monitor WebSocket server listening on ws://localhost:${PORT}`);
 });
-

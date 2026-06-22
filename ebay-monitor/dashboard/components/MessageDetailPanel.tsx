@@ -22,33 +22,55 @@ type Props = {
 };
 
 export function MessageDetailPanel({ message, store, onClose }: Props) {
-  const { updateMessageStatus } = useRealtime();
+  const { updateMessageStatus, updateMessageNote } = useRealtime();
   const storeName = store?.name || message.stores?.name || 'Unknown Store';
   const unread = message.status === 'unread';
 
-  const [note, setNote] = useState('');
-  const [noteSaved, setNoteSaved] = useState(false);
+  const [note, setNote] = useState(message.note || '');
+  const [noteStatus, setNoteStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
   const [copied, setCopied] = useState(false);
   const noteSaveTimer = useRef<NodeJS.Timeout | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Load saved note for this message fingerprint
   useEffect(() => {
-    const saved = localStorage.getItem(`note-${message.fingerprint}`);
-    setNote(saved || '');
-  }, [message.fingerprint]);
+    const databaseNote = message.note || '';
+    const localNote = localStorage.getItem(`note-${message.fingerprint}`) || '';
+    const nextNote = databaseNote || localNote;
+    setNote(nextNote);
+    setNoteStatus('idle');
 
-  // Auto-save note to localStorage 500ms after user stops typing
+    if (!databaseNote && localNote) {
+      updateMessageNote(message.id, localNote)
+        .then(() => {
+          localStorage.removeItem(`note-${message.fingerprint}`);
+          setNoteStatus('saved');
+          setTimeout(() => setNoteStatus('idle'), 1500);
+        })
+        .catch(() => setNoteStatus('error'));
+    }
+  }, [message.fingerprint, message.id, message.note, updateMessageNote]);
+
   const handleNoteChange = useCallback((val: string) => {
     setNote(val);
-    setNoteSaved(false);
+    setNoteStatus('saving');
     if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
-    noteSaveTimer.current = setTimeout(() => {
-      localStorage.setItem(`note-${message.fingerprint}`, val);
-      setNoteSaved(true);
-      setTimeout(() => setNoteSaved(false), 1500);
+    noteSaveTimer.current = setTimeout(async () => {
+      try {
+        await updateMessageNote(message.id, val);
+        localStorage.removeItem(`note-${message.fingerprint}`);
+        setNoteStatus('saved');
+        setTimeout(() => setNoteStatus('idle'), 1500);
+      } catch {
+        setNoteStatus('error');
+      }
     }, 500);
-  }, [message.fingerprint]);
+  }, [message.fingerprint, message.id, updateMessageNote]);
+
+  useEffect(() => {
+    return () => {
+      if (noteSaveTimer.current) clearTimeout(noteSaveTimer.current);
+    };
+  }, []);
 
   // Close on Escape key
   useEffect(() => {
@@ -80,13 +102,13 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       {/* Main panel */}
-      <div className="relative flex w-full max-w-5xl mx-auto flex-col rounded-none sm:rounded-2xl overflow-hidden shadow-2xl border border-border/60 bg-[#111216] my-0 sm:my-8 animate-slide-in-top">
+      <div className="relative flex w-full max-w-5xl mx-auto flex-col rounded-none sm:rounded-2xl overflow-hidden shadow-2xl border border-border/60 bg-surface my-0 sm:my-8 animate-slide-in-top">
 
         {/* Header bar */}
         <div className="flex items-center justify-between gap-3 px-5 py-3.5 border-b border-border/60 bg-panel/60">
           <div className="flex items-center gap-3 min-w-0">
             {/* Store badge */}
-            <span className="inline-flex items-center gap-1 rounded border border-border bg-surface px-2 py-0.5 text-[10px] text-neutral-400 font-medium shrink-0">
+            <span className="inline-flex items-center gap-1 rounded border border-border bg-panel px-2 py-0.5 text-[10px] text-muted font-medium shrink-0">
               <StoreIcon className="h-3 w-3" />
               {storeName}
             </span>
@@ -94,7 +116,7 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
             <button
               onClick={handleCopyBuyer}
               title="Click to copy customer name"
-              className="group flex items-center gap-1.5 text-base font-semibold text-white hover:text-accent transition-colors truncate"
+              className="group flex items-center gap-1.5 text-base font-semibold text-foreground hover:text-accent transition-colors truncate"
             >
               <span className="truncate">{message.buyer}</span>
               {copied ? (
@@ -116,7 +138,7 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
             <button
               onClick={handleToggleRead}
               title={unread ? 'Mark as read' : 'Mark as unread'}
-              className="p-1.5 rounded-md hover:bg-surface text-neutral-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-md hover:bg-panel text-muted hover:text-foreground transition-colors"
             >
               {unread ? <MailOpen className="h-4 w-4" /> : <Mail className="h-4 w-4" />}
             </button>
@@ -124,7 +146,7 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
               <button
                 onClick={handleArchive}
                 title="Archive"
-                className="p-1.5 rounded-md hover:bg-surface text-neutral-400 hover:text-white transition-colors"
+                className="p-1.5 rounded-md hover:bg-panel text-muted hover:text-foreground transition-colors"
               >
                 <Archive className="h-4 w-4" />
               </button>
@@ -133,7 +155,7 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
             <button
               onClick={onClose}
               title="Close (Esc)"
-              className="p-1.5 rounded-md hover:bg-surface text-neutral-400 hover:text-white transition-colors"
+              className="p-1.5 rounded-md hover:bg-panel text-muted hover:text-foreground transition-colors"
             >
               <X className="h-4 w-4" />
             </button>
@@ -154,28 +176,28 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
             {/* Subject line */}
             {message.subject && (
               <div className="flex items-start gap-2">
-                <span className="text-xs text-neutral-500 shrink-0 mt-0.5 font-medium uppercase tracking-wide">Subject</span>
-                <p className="text-sm font-semibold text-white leading-snug">{message.subject}</p>
+                <span className="text-xs text-muted shrink-0 mt-0.5 font-medium uppercase tracking-wide">Subject</span>
+                <p className="text-sm font-semibold text-foreground leading-snug">{message.subject}</p>
               </div>
             )}
 
             {/* Preview bubble */}
             <div className="rounded-xl border border-border/60 bg-surface/60 px-5 py-4">
-              <p className="text-sm leading-relaxed text-neutral-200 whitespace-pre-wrap break-words">
-                {message.preview || <span className="text-neutral-500 italic">No preview available</span>}
+              <p className="text-sm leading-relaxed text-soft whitespace-pre-wrap break-words">
+                {message.preview || <span className="text-muted italic">No preview available</span>}
               </p>
             </div>
 
             {/* Meta badges */}
             <div className="flex flex-wrap gap-2 text-xs">
-              <span className="rounded-md border border-border px-2.5 py-1 text-neutral-400 bg-panel">
-                Status: <span className="text-white font-medium capitalize">{message.status}</span>
+              <span className="rounded-md border border-border px-2.5 py-1 text-muted bg-panel">
+                Status: <span className="text-foreground font-medium capitalize">{message.status}</span>
               </span>
-              <span className="rounded-md border border-border px-2.5 py-1 text-neutral-400 bg-panel">
-                Unread count: <span className="text-white font-medium">{message.unread}</span>
+              <span className="rounded-md border border-border px-2.5 py-1 text-muted bg-panel">
+                Unread count: <span className="text-foreground font-medium">{message.unread}</span>
               </span>
               {message.fingerprint && (
-                <span className="rounded-md border border-border px-2.5 py-1 text-neutral-400 bg-panel font-mono truncate max-w-xs">
+                <span className="rounded-md border border-border px-2.5 py-1 text-muted bg-panel font-mono truncate max-w-xs">
                   ID: {message.fingerprint.slice(0, 16)}…
                 </span>
               )}
@@ -187,15 +209,20 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
           <div className="md:hidden h-px bg-border/50 shrink-0" />
 
           {/* Right: Notes panel */}
-          <div className="w-full md:w-72 lg:w-80 flex flex-col shrink-0 bg-[#0e1014] p-4 gap-3">
+          <div className="w-full md:w-72 lg:w-80 flex flex-col shrink-0 bg-panel p-4 gap-3">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5 text-sm font-semibold text-white">
+              <div className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
                 <NotepadText className="h-4 w-4 text-accent" />
                 Notes
               </div>
-              {noteSaved && (
-                <span className="text-[10px] text-green-400 flex items-center gap-1">
-                  <Check className="h-3 w-3" /> Saved
+              {noteStatus !== 'idle' && (
+                <span
+                  className={`flex items-center gap-1 text-[10px] ${
+                    noteStatus === 'error' ? 'text-danger' : 'text-green-400'
+                  }`}
+                >
+                  {noteStatus === 'saved' && <Check className="h-3 w-3" />}
+                  {noteStatus === 'saving' ? 'Saving...' : noteStatus === 'error' ? 'Save failed' : 'Saved'}
                 </span>
               )}
             </div>
@@ -204,10 +231,10 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
               value={note}
               onChange={(e) => handleNoteChange(e.target.value)}
               placeholder={`Write notes about ${message.buyer}…`}
-              className="flex-1 min-h-[200px] md:min-h-0 resize-none rounded-xl border border-border/60 bg-surface/50 px-3.5 py-3 text-sm text-neutral-200 placeholder:text-neutral-600 outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition-all leading-relaxed"
+              className="flex-1 min-h-[200px] md:min-h-0 resize-none rounded-xl border border-border/60 bg-surface/70 px-3.5 py-3 text-sm text-soft placeholder:text-muted/70 outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition-all leading-relaxed"
             />
             <p className="text-[10px] text-muted">
-              Notes are saved locally in your browser.
+              Notes are saved to the database so everyone can see them.
             </p>
           </div>
 

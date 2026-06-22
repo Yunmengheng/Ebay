@@ -463,7 +463,7 @@
     const search = location.search.toLowerCase();
 
     // 1. Check path/search for non-inbox folders
-    const nonInboxPaths = ['/sent', '/archive', '/deleted', '/trash', '/draft', '/from', '/unread'];
+    const nonInboxPaths = ['/sent', '/archive', '/deleted', '/trash', '/draft'];
     if (nonInboxPaths.some(p => path.includes(p))) {
       return false;
     }
@@ -479,7 +479,7 @@
 
     const nonInboxKeywords = [
       'sent', 'archive', 'deleted', 'trash', 'draft',
-      'from', 'member', 'notification'
+      'notification'
     ];
 
     for (const el of activeElements) {
@@ -512,12 +512,21 @@
   }
 
   async function extractMessages() {
+    const currentStore = await initStore();
+
     if (!isInboxSelected()) {
       console.log('[EbayMonitor] Skipping scan because a non-Inbox folder is selected.');
-      return { ok: true, candidateCount: 0, sentCount: 0 };
+      const result = {
+        ok: true,
+        candidateCount: 0,
+        sentCount: 0,
+        skipped: true,
+        reason: 'Non-Inbox folder selected'
+      };
+      chrome.runtime.sendMessage({ type: 'SCAN_RESULT', ...result }).catch(() => {});
+      return result;
     }
 
-    const currentStore = await initStore();
     let sentCount = 0;
     const rows = candidateRows();
     let conversationsScanned = 0;

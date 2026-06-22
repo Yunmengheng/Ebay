@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS messages (
   buyer TEXT NOT NULL,
   subject TEXT NOT NULL DEFAULT '',
   preview TEXT NOT NULL DEFAULT '',
+  note TEXT NOT NULL DEFAULT '',
   unread INT DEFAULT 0,
   status TEXT DEFAULT 'unread' CHECK (status IN ('unread', 'read', 'archived')),
   fingerprint TEXT UNIQUE NOT NULL,
@@ -46,4 +47,3 @@ DROP POLICY IF EXISTS "allow all" ON messages;
 
 CREATE POLICY "allow all" ON stores FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "allow all" ON messages FOR ALL USING (true) WITH CHECK (true);
-

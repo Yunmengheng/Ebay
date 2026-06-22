@@ -7,12 +7,22 @@ export type Store = {
   online: boolean;
 };
 
+export type StoreLog = {
+  id: string;
+  storeId: string;
+  storeName: string;
+  level: 'info' | 'success' | 'warning' | 'error';
+  message: string;
+  timestamp: string;
+};
+
 export type Message = {
   id: string;
   store_id: string;
   buyer: string;
   subject: string;
   preview: string;
+  note?: string | null;
   unread: number;
   status: MessageStatus;
   fingerprint: string;
@@ -27,10 +37,18 @@ export type Toast = {
   preview: string;
 };
 
+export type NotificationItem = {
+  id: string;
+  messageId?: string;
+  storeName: string;
+  buyer: string;
+  preview: string;
+  createdAt: string;
+};
+
 export type Preferences = {
   desktopNotifications: boolean;
   toastNotifications: boolean;
   soundAlerts: boolean;
   wsUrl: string;
 };
-

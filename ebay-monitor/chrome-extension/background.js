@@ -11,6 +11,7 @@ let unreadCount = 0;
 let notificationQueue = [];
 let notificationTimer = null;
 let socketVersion = 0;
+let lastScanLogAt = 0;
 
 const getStorage = (keys) => chrome.storage.local.get(keys);
 const setStorage = (value) => chrome.storage.local.set(value);
@@ -239,6 +240,22 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         scannerActive: true,
         unreadCount
       });
+      const now = Date.now();
+      const data = await getStorage(['storeId', 'storeName']);
+      const store = currentStore || (data.storeId ? { storeId: data.storeId, storeName: data.storeName } : null);
+      const shouldLogScan = message.skipped || message.sentCount > 0 || now - lastScanLogAt > 30000;
+      if (store && shouldLogScan) {
+        lastScanLogAt = now;
+        sendSocket({
+          type: 'EXTENSION_LOG',
+          ...store,
+          level: message.skipped ? 'warning' : 'info',
+          message: message.skipped
+            ? `Scan skipped: ${message.reason || 'not on inbox'}`
+            : `Scan completed: ${message.candidateCount || 0} rows found, ${message.sentCount || 0} updates sent`,
+          timestamp: now
+        });
+      }
       sendResponse({ ok: true });
       return;
     }
