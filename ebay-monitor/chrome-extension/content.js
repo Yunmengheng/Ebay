@@ -266,26 +266,92 @@
     );
   }
 
+  function getConversationId(row) {
+    const node = row.matches?.('[data-conversation-id]')
+      ? row
+      : row.querySelector('[data-conversation-id]');
+    return node?.getAttribute('data-conversation-id') || '';
+  }
+
+  function visibleText(node) {
+    if (!node) return '';
+    const clone = node.cloneNode(true);
+    clone.querySelectorAll('.sr-only, .clipped, svg, title').forEach((el) => el.remove());
+    return text(clone);
+  }
+
+  function getVisualRowIndex(row) {
+    const rowNode = row.matches?.('[id^="row-"]') ? row : row.closest?.('[id^="row-"]');
+    const match = rowNode?.id?.match(/^row-(\d+)$/);
+    return match ? Number(match[1]) : null;
+  }
+
   function extractSubjectText(row) {
-    const subjectNode = row.querySelector(
-      '.message-subject [aria-hidden="true"], .message-subject .ux-textspans, [class*="conversation-title" i] [aria-hidden="true"], [class*="conversation-title" i] .ux-textspans, .message-subject, [class*="conversation-title" i], [data-testid="ux-textual-display"]'
-    );
-    return text(subjectNode)
-      .replace(/^Unread,\s*/i, '')
-      .replace(/^Read,\s*/i, '')
-      .trim();
+    const subjectRoot = row.querySelector('.message-subject, [class*="conversation-title" i]');
+    const subjectNode =
+      subjectRoot?.querySelector('[aria-hidden="true"] .ux-textspans, [aria-hidden="true"], .ux-textspans') ||
+      row.querySelector('[data-testid="ux-textual-display"] .ux-textspans, [data-testid="ux-textual-display"]') ||
+      subjectRoot;
+    return cleanEbayText(visibleText(subjectNode));
+  }
+
+  function collapseRepeatedText(value) {
+    const clean = (value || '').trim();
+    if (!clean) return '';
+
+    for (let i = Math.floor(clean.length / 2); i >= 4; i--) {
+      const left = clean.slice(0, i).trim();
+      const right = clean.slice(i).trim();
+      if (left && left === right) return left;
+    }
+
+    return clean;
   }
 
   function cleanEbayText(value) {
-    return (value || '')
+    const cleaned = (value || '')
       .replace(/\bUnread,\s*/gi, '')
       .replace(/\bRead,\s*/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
+    return collapseRepeatedText(cleaned);
+  }
+
+  function extractCardMessageFromRow(row) {
+    const card = row.querySelector('.card__content');
+    if (!card) return null;
+
+    const fromEbay = isFromEbayRow(row);
+    const conversationId = getConversationId(row);
+    const buyer = fromEbay
+      ? 'eBay'
+      : cleanEbayText(visibleText(card.querySelector('.card__username, [class*="sender" i]')));
+    const subject = cleanEbayText(extractSubjectText(row));
+    const latestMessageNode = card.querySelector('.card__latest-message');
+    const preview = cleanEbayText(visibleText(latestMessageNode) || subject);
+    const ebayTimeStr = cleanEbayText(visibleText(card.querySelector('.card__time, time')));
+
+    if (!buyer || buyer.length < 2) return null;
+    if (!fromEbay && SYSTEM_LABELS.test(buyer.trim())) return null;
+    if (!subject && !preview) return null;
+
+    return {
+      buyer: buyer.slice(0, 120),
+      subject: (subject || preview).slice(0, 200),
+      preview: (preview || subject).slice(0, 500),
+      unreadCount: parseUnread(row),
+      conversationId,
+      ebayTimeStr,
+      visualRowIndex: getVisualRowIndex(row)
+    };
   }
 
   function extractMessageFromRow(row) {
+    const cardMessage = extractCardMessageFromRow(row);
+    if (cardMessage) return cardMessage;
+
     const fromEbay = isFromEbayRow(row);
+    const conversationId = getConversationId(row);
     const rawFragments = getRowTextFragments(row);
     
     // Clean up fragments
@@ -376,6 +442,8 @@
       subject: subject.slice(0, 200),
       preview: preview.slice(0, 500),
       unreadCount,
+      conversationId,
+      visualRowIndex: getVisualRowIndex(row),
       ebayTimeStr
     };
   }
@@ -387,6 +455,27 @@
    */
   function candidateRows() {
     const rowSet = new Set();
+    const tableRows = [...document.querySelectorAll('tr[id^="row-"][role="row"], tr[id^="row-"]')]
+      .filter((row) => {
+        const textVal = (row.textContent || '').trim();
+        return (
+          row.querySelector('[data-conversation-id]') &&
+          !textVal.includes('Select all') &&
+          !textVal.includes('Mark as read')
+        );
+      });
+
+    if (tableRows.length > 0) {
+      return tableRows.sort((a, b) => {
+        const aIdx = getVisualRowIndex(a);
+        const bIdx = getVisualRowIndex(b);
+        if (aIdx !== null && bIdx !== null) return aIdx - bIdx;
+        const pos = a.compareDocumentPosition(b);
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+        return 0;
+      });
+    }
 
     // Strategy 1: checkbox-anchored rows (reliable when eBay has checkboxes)
     const checkboxElements = document.querySelectorAll('input[type="checkbox"], [role="checkbox"]');
@@ -585,7 +674,10 @@
       const message = extractMessageFromRow(rows[i]);
       if (message) {
         conversationsScanned++;
-        const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, message.subject);
+        const fingerprintSeed = message.conversationId
+          ? `conversation:${message.conversationId}`
+          : message.subject;
+        const fingerprint = fingerprintFor(currentStore.storeId, message.buyer, fingerprintSeed);
         currentFingerprints.push(fingerprint);
 
         const cacheKey = `${fingerprint}:${message.unreadCount}:${message.preview}`;
@@ -619,10 +711,10 @@
             fingerprint: fingerprint,
             ebayTimestamp: stableTs,
             // rowIndex is sent so the server can use it as ordering hint
-            rowIndex: i,
+            rowIndex: message.visualRowIndex ?? i,
             timestamp: new Date(stableTs).toISOString()
           });
-          console.log(`[EbayMonitor] Row ${i}: ${message.buyer} | time: ${new Date(stableTs).toLocaleString()} | subject: "${message.subject}" | preview: "${message.preview.slice(0, 40)}"`);
+          console.log(`[EbayMonitor] Row ${message.visualRowIndex ?? i}: ${message.buyer} | time: ${new Date(stableTs).toLocaleString()} | subject: "${message.subject}" | preview: "${message.preview.slice(0, 40)}"`);
         }
 
       }
