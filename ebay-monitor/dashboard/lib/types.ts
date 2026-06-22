@@ -23,6 +23,7 @@ export type Message = {
   subject: string;
   preview: string;
   note?: string | null;
+  urgent?: boolean | null;
   unread: number;
   status: MessageStatus;
   fingerprint: string;

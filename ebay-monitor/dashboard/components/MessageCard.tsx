@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle } from 'lucide-react';
 import type { Message, Store } from '@/lib/types';
 import { relativeTime } from '@/lib/utils';
+import { useRealtime } from './RealtimeProvider';
 
 type Props = {
   message: Message;
@@ -12,14 +13,20 @@ type Props = {
 };
 
 export function MessageCard({ message, store, onOpen }: Props) {
+  const { updateMessageUrgent } = useRealtime();
   const storeName = store?.name || message.stores?.name || 'Unknown Store';
   const unread = message.status === 'unread';
   const [copied, setCopied] = useState(false);
-  const [urgent, setUrgent] = useState(false);
+  const urgent = Boolean(message.urgent);
 
   useEffect(() => {
-    setUrgent(localStorage.getItem(`urgent-${message.fingerprint}`) === 'true');
-  }, [message.fingerprint]);
+    const localUrgent = localStorage.getItem(`urgent-${message.fingerprint}`) === 'true';
+    if (localUrgent && !message.urgent) {
+      updateMessageUrgent(message.id, true)
+        .then(() => localStorage.removeItem(`urgent-${message.fingerprint}`))
+        .catch(() => {});
+    }
+  }, [message.fingerprint, message.id, message.urgent, updateMessageUrgent]);
 
   const handleCopyBuyer = async (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -30,13 +37,7 @@ export function MessageCard({ message, store, onOpen }: Props) {
 
   const toggleUrgent = (e: React.MouseEvent) => {
     e.stopPropagation();
-    const next = !urgent;
-    setUrgent(next);
-    if (next) {
-      localStorage.setItem(`urgent-${message.fingerprint}`, 'true');
-    } else {
-      localStorage.removeItem(`urgent-${message.fingerprint}`);
-    }
+    updateMessageUrgent(message.id, !urgent).catch(() => {});
   };
 
   const rowBg = unread

@@ -7,6 +7,7 @@ const wsHint = document.querySelector('#wsHint');
 const diag = document.querySelector('#diag');
 const storeNameInput = document.querySelector('#storeNameInput');
 const storeHint = document.querySelector('#storeHint');
+const DEFAULT_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
 
 function isValidWsUrl(value) {
   return value.startsWith('ws://') || value.startsWith('wss://');
@@ -28,9 +29,9 @@ function render(state) {
   storeNameInput.value = name === 'Open eBay messages' ? '' : name;
   unreadCount.textContent = String(state.lastScanSentCount ?? state.unreadCount ?? 0);
   statusText.textContent = state.status || 'disconnected';
-  wsUrl.value = state.wsUrl || 'ws://localhost:3001';
+  wsUrl.value = state.wsUrl || DEFAULT_WS_URL;
   statusDot.classList.toggle('connected', state.status === 'connected');
-  setHint('Use ws://localhost:3001, not your eBay inbox link.');
+  setHint('Use the WebSocket backend URL, not your eBay inbox link.');
   setStoreHint('This name appears in the dashboard.');
   const scanText = state.lastScanAt
     ? `Scanner: active · rows ${state.lastScanCandidateCount || 0} · sent ${state.lastScanSentCount || 0}`
@@ -70,8 +71,8 @@ document.querySelector('#saveStoreName').addEventListener('click', async () => {
 document.querySelector('#saveWs').addEventListener('click', async () => {
   const nextUrl = wsUrl.value.trim();
   if (!isValidWsUrl(nextUrl)) {
-    setHint('That is a web page URL. Set this to ws://localhost:3001.', true);
-    wsUrl.value = 'ws://localhost:3001';
+    setHint(`That is a web page URL. Set this to ${DEFAULT_WS_URL}.`, true);
+    wsUrl.value = DEFAULT_WS_URL;
     await chrome.runtime.sendMessage({ type: 'RESET_WS_URL' });
     refresh();
     return;
@@ -79,14 +80,14 @@ document.querySelector('#saveWs').addEventListener('click', async () => {
 
   const response = await chrome.runtime.sendMessage({ type: 'SET_WS_URL', wsUrl: nextUrl });
   wsUrl.value = response.wsUrl || nextUrl;
-  setHint('Saved. Keep npm run dev running in the ebay-monitor folder.');
+  setHint('Saved. The extension will connect to this backend.');
   refresh();
 });
 
 document.querySelector('#resetWs').addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'RESET_WS_URL' });
-  wsUrl.value = response.wsUrl || 'ws://localhost:3001';
-  setHint('Reset. Keep npm run dev running in the ebay-monitor folder.');
+  wsUrl.value = response.wsUrl || DEFAULT_WS_URL;
+  setHint('Reset to the deployed backend.');
   refresh();
 });
 

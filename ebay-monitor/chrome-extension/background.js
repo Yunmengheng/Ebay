@@ -1,4 +1,4 @@
-const DEFAULT_WS_URL = 'ws://localhost:3001';
+const DEFAULT_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
 const DASHBOARD_URL = 'http://localhost:3000/dashboard';
 
 let socket = null;

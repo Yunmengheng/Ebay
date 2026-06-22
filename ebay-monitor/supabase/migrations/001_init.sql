@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS messages (
   subject TEXT NOT NULL DEFAULT '',
   preview TEXT NOT NULL DEFAULT '',
   note TEXT NOT NULL DEFAULT '',
+  urgent BOOLEAN NOT NULL DEFAULT FALSE,
   unread INT DEFAULT 0,
   status TEXT DEFAULT 'unread' CHECK (status IN ('unread', 'read', 'archived')),
   fingerprint TEXT UNIQUE NOT NULL,

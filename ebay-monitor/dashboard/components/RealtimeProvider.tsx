@@ -22,6 +22,7 @@ type RealtimeContextValue = {
   clearNotifications: () => void;
   updateMessageStatus: (id: string, status: Message['status']) => Promise<void>;
   updateMessageNote: (id: string, note: string) => Promise<void>;
+  updateMessageUrgent: (id: string, urgent: boolean) => Promise<void>;
   deleteStore: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
 };
@@ -373,6 +374,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [refreshData]);
 
+  const updateMessageUrgent = useCallback(async (id: string, urgent: boolean) => {
+    setMessages((current) => current.map((message) => (message.id === id ? { ...message, urgent } : message)));
+    const { error } = await supabase.from('messages').update({ urgent }).eq('id', id);
+    if (error) {
+      await refreshData();
+      throw error;
+    }
+  }, [refreshData]);
+
   const deleteStore = useCallback(async (id: string) => {
     // Optimistically remove from UI immediately
     setStores((current) => current.filter((s) => s.id !== id));
@@ -403,6 +413,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       clearNotifications,
       updateMessageStatus,
       updateMessageNote,
+      updateMessageUrgent,
       deleteStore,
       refreshData
     }),
@@ -423,6 +434,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       clearNotifications,
       updateMessageStatus,
       updateMessageNote,
+      updateMessageUrgent,
       deleteStore,
       refreshData
     ]
