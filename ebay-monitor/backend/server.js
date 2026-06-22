@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { createClient } from '@supabase/supabase-js';
 
-const PORT = Number(process.env.WS_PORT || 3001);
+const PORT = Number(process.env.PORT || process.env.WS_PORT || 3001);
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseKey =
   process.env.SUPABASE_SERVICE_ROLE_KEY ||

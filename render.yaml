@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: ebay-message-monitor-backend
+    runtime: node
+    rootDir: ebay-monitor/backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    plan: free
+    envVars:
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
