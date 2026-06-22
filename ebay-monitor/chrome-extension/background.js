@@ -1,4 +1,5 @@
-const DEFAULT_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
+const DEFAULT_WS_URL = 'ws://localhost:3001';
+const OLD_RENDER_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
 const DASHBOARD_URL = 'http://localhost:3000/dashboard';
 
 let socket = null;
@@ -44,6 +45,10 @@ function normalizeWsUrl(value) {
 
 async function getWsUrl() {
   const data = await getStorage(['wsUrl']);
+  if (data.wsUrl === OLD_RENDER_WS_URL) {
+    await setStorage({ wsUrl: DEFAULT_WS_URL });
+    return DEFAULT_WS_URL;
+  }
   const wsUrl = normalizeWsUrl(data.wsUrl);
   if (data.wsUrl && data.wsUrl !== wsUrl) {
     await setStorage({ wsUrl });

@@ -7,7 +7,8 @@ const wsHint = document.querySelector('#wsHint');
 const diag = document.querySelector('#diag');
 const storeNameInput = document.querySelector('#storeNameInput');
 const storeHint = document.querySelector('#storeHint');
-const DEFAULT_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
+const DEFAULT_WS_URL = 'ws://localhost:3001';
+const OLD_RENDER_WS_URL = 'wss://ebay-message-monitor-backend.onrender.com';
 
 function isValidWsUrl(value) {
   return value.startsWith('ws://') || value.startsWith('wss://');
@@ -25,11 +26,12 @@ function setStoreHint(message, isError = false) {
 
 function render(state) {
   const name = state.storeName || 'Unknown eBay Store';
+  const resolvedWsUrl = state.wsUrl === OLD_RENDER_WS_URL ? DEFAULT_WS_URL : state.wsUrl;
   storeName.textContent = name;
   storeNameInput.value = name === 'Open eBay messages' ? '' : name;
   unreadCount.textContent = String(state.lastScanSentCount ?? state.unreadCount ?? 0);
   statusText.textContent = state.status || 'disconnected';
-  wsUrl.value = state.wsUrl || DEFAULT_WS_URL;
+  wsUrl.value = resolvedWsUrl || DEFAULT_WS_URL;
   statusDot.classList.toggle('connected', state.status === 'connected');
   setHint('Use the WebSocket backend URL, not your eBay inbox link.');
   setStoreHint('This name appears in the dashboard.');
@@ -87,7 +89,7 @@ document.querySelector('#saveWs').addEventListener('click', async () => {
 document.querySelector('#resetWs').addEventListener('click', async () => {
   const response = await chrome.runtime.sendMessage({ type: 'RESET_WS_URL' });
   wsUrl.value = response.wsUrl || DEFAULT_WS_URL;
-  setHint('Reset to the deployed backend.');
+  setHint('Reset to the local backend.');
   refresh();
 });
 
