@@ -45,7 +45,7 @@ const normalizeMessage = (message: Message): Message => ({
   stores: message.stores || null
 });
 
-function playChime() {
+function playGeneratedChime() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
   if (!AudioContextClass) return;
   const ctx = new AudioContextClass();
@@ -73,6 +73,13 @@ function playChime() {
 
   playTone(1046.5, 0, 0.2);
   playTone(1568, 0.18, 0.32);
+}
+
+function playChime() {
+  const audio = new Audio('/sounds/new-message.mp3');
+  audio.volume = 1;
+  audio.currentTime = 0;
+  audio.play().catch(() => playGeneratedChime());
 }
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
