@@ -56,6 +56,49 @@ const broadcastDashboards = (payload) => {
   dashboards.forEach((client) => send(client, payload));
 };
 
+function cleanErrorMessage(error) {
+  const raw = String(error?.message || error || 'Unknown error');
+  const lower = raw.toLowerCase();
+
+  if (raw.includes('522') || lower.includes('connection timed out') || lower.includes('cloudflare')) {
+    return 'Supabase connection timed out (Cloudflare 522). Retrying or try again in a few minutes.';
+  }
+
+  if (raw.includes('<!DOCTYPE html') || raw.includes('<html')) {
+    return 'Supabase returned an HTML error page instead of JSON. Check Supabase status and try again.';
+  }
+
+  return raw.replace(/\s+/g, ' ').trim().slice(0, 500);
+}
+
+function isRetryableSupabaseError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('522') ||
+    message.includes('connection timed out') ||
+    message.includes('cloudflare') ||
+    message.includes('<!doctype html') ||
+    message.includes('<html')
+  );
+}
+
+async function runSupabase(label, operation, retries = 2) {
+  let lastResult;
+
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    lastResult = await operation();
+    if (!lastResult?.error || !isRetryableSupabaseError(lastResult.error) || attempt === retries) {
+      return lastResult;
+    }
+
+    const delay = 750 * (attempt + 1);
+    console.warn(`${label} failed: ${cleanErrorMessage(lastResult.error)} Retrying in ${delay}ms...`);
+    await new Promise((resolve) => setTimeout(resolve, delay));
+  }
+
+  return lastResult;
+}
+
 const broadcastStoreLog = ({ storeId, storeName, level = 'info', message }) => {
   if (!storeId) return;
   const timestamp = new Date().toISOString();
@@ -84,8 +127,8 @@ async function fetchInit() {
         .order('last_seen', { ascending: false })
     ]);
 
-  if (messageError) console.error('Failed to fetch messages:', messageError.message);
-  if (storeError) console.error('Failed to fetch stores:', storeError.message);
+  if (messageError) console.error('Failed to fetch messages:', cleanErrorMessage(messageError));
+  if (storeError) console.error('Failed to fetch stores:', cleanErrorMessage(storeError));
 
   return { messages: messages || [], stores: stores || [] };
 }
@@ -98,7 +141,7 @@ async function upsertStore(storeId, storeName) {
     online: true
   };
 
-  const { error } = await supabaseAdmin.from('stores').upsert(payload);
+  const { error } = await runSupabase('Upsert store', () => supabaseAdmin.from('stores').upsert(payload));
   if (error) throw error;
 
   broadcastDashboards({
@@ -125,7 +168,7 @@ async function detectSubjectColumn() {
       console.log('[server] subject column detected in messages table.');
     } else {
       hasSubjectColumn = false;
-      console.warn('[server] subject column NOT found. Run supabase/migrations/002_add_subject.sql to add it.');
+      console.warn(`[server] subject column NOT found: ${cleanErrorMessage(error)}. Run supabase/migrations/002_add_subject.sql to add it if needed.`);
     }
   } catch {
     hasSubjectColumn = false;
@@ -262,18 +305,21 @@ async function syncInbox(event) {
 
   await upsertStore(storeId, storeName);
 
-  let query = supabaseAdmin.from('messages').delete().eq('store_id', storeId);
-  if (fingerprints.length > 0) {
-    query = query.not('fingerprint', 'in', `(${fingerprints.map(f => `"${f}"`).join(',')})`);
-  }
-  const { error } = await query;
+  const { error } = await runSupabase('Sync inbox cleanup', () => {
+    let query = supabaseAdmin.from('messages').delete().eq('store_id', storeId);
+    if (fingerprints.length > 0) {
+      query = query.not('fingerprint', 'in', `(${fingerprints.map(f => `"${f}"`).join(',')})`);
+    }
+    return query;
+  });
   if (error) {
-    console.error(`Failed to delete stale messages for store ${storeId}:`, error.message);
+    const message = cleanErrorMessage(error);
+    console.error(`Failed to delete stale messages for store ${storeId}:`, message);
     broadcastStoreLog({
       storeId,
       storeName,
       level: 'error',
-      message: `Inbox sync failed: ${error.message}`
+      message: `Inbox sync failed: ${message}`
     });
     throw error;
   }
@@ -295,15 +341,17 @@ async function markOffline(storeId) {
   if (!storeId) return;
 
   const lastSeen = new Date().toISOString();
-  const { data, error } = await supabaseAdmin
-    .from('stores')
-    .update({ online: false, last_seen: lastSeen })
-    .eq('id', storeId)
-    .select()
-    .single();
+  const { data, error } = await runSupabase('Mark store offline', () =>
+    supabaseAdmin
+      .from('stores')
+      .update({ online: false, last_seen: lastSeen })
+      .eq('id', storeId)
+      .select()
+      .single()
+  );
 
   if (error && error.code !== 'PGRST116') {
-    console.error('Failed to mark store offline:', error.message);
+    console.error('Failed to mark store offline:', cleanErrorMessage(error));
     return;
   }
 
@@ -406,14 +454,15 @@ wss.on('connection', async (ws, request) => {
         return;
       }
     } catch (error) {
-      console.error(`Failed to process ${event.type}:`, error.message);
+      const message = cleanErrorMessage(error);
+      console.error(`Failed to process ${event.type}:`, message);
       broadcastStoreLog({
         storeId: event.storeId || ws.storeId,
         storeName: event.storeName,
         level: 'error',
-        message: `${event.type} failed: ${error.message}`
+        message: `${event.type} failed: ${message}`
       });
-      send(ws, { type: 'ERROR', message: error.message });
+      send(ws, { type: 'ERROR', message });
     }
   });
 
