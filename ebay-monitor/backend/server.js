@@ -168,16 +168,13 @@ async function insertMessage(event) {
     const subjectChanged = (existing.subject || '') !== subject;
     const statusChanged = existing.status !== targetStatus || existing.unread !== unread;
 
-    const incomingTs = event.timestamp ? new Date(event.timestamp).getTime() : null;
-    const existingTs = existing.created_at ? new Date(existing.created_at).getTime() : null;
-    // Update timestamp if incoming differs enough to affect ordering.
-    // The extension encodes DOM row order into timestamps, so rescans can repair
-    // older rows that were saved before ordering fixes.
-    const tsChanged = incomingTs && (!existingTs || Math.abs(incomingTs - existingTs) > 30 * 1000);
-
     const shouldUpdateContent = previewChanged || subjectChanged;
     const shouldUpdateStatus = shouldUpdateContent || (existing.status !== 'archived' && statusChanged);
-    const shouldUpdateTs = shouldUpdateContent || tsChanged;
+    // Keep existing rows stable during background rescans. eBay exposes relative
+    // times like "1h", so rescans produce slightly different timestamps and can
+    // make the All stores feed jump around. Only move a conversation when its
+    // visible content actually changed, which means a real new latest message.
+    const shouldUpdateTs = shouldUpdateContent;
 
     if (shouldUpdateStatus || shouldUpdateTs) {
       const updatePayload = {};
