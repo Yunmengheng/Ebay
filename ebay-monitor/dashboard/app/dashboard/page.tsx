@@ -67,7 +67,7 @@ function DashboardContent() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">Live inbox feed</h1>
-          <p className="mt-1 text-sm text-muted">WebSocket primary updates with Supabase Realtime sync.</p>
+          <p className="mt-1 text-sm text-muted">WebSocket live updates with backend database persistence.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 min-w-[130px] justify-center">
@@ -80,20 +80,10 @@ function DashboardContent() {
                 supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
               }`}
             />
-            Supabase {supabaseStatus.replace('_', ' ')}
+            Database {supabaseStatus.replace('_', ' ')}
           </span>
         </div>
       </div>
-
-      {supabaseStatus === 'setup_required' && (
-        <section className="rounded-card border border-danger/40 bg-danger/10 p-4 text-sm text-red-100">
-          <div className="font-semibold text-foreground">Supabase tables are not ready yet.</div>
-          <p className="mt-1 text-red-100/80">
-            Run <span className="font-mono">supabase/migrations/001_init.sql</span> in your Supabase SQL editor, then
-            refresh this page. Current Supabase response: {supabaseError}
-          </p>
-        </section>
-      )}
 
       <StatsBar messages={messages} stores={stores} storeLogs={storeLogs} />
       <StoreFilter

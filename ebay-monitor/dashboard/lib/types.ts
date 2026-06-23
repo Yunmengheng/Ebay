@@ -18,7 +18,7 @@ export type StoreLog = {
 
 export type SystemLog = {
   id: string;
-  source: 'websocket' | 'supabase';
+  source: 'websocket' | 'database';
   level: 'info' | 'success' | 'warning' | 'error';
   message: string;
   timestamp: string;

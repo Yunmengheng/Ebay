@@ -8,7 +8,9 @@ services:
     healthCheckPath: /health
     plan: free
     envVars:
-      - key: NEXT_PUBLIC_SUPABASE_URL
+      - key: DATABASE_URL
         sync: false
-      - key: SUPABASE_SERVICE_ROLE_KEY
-        sync: false
+      - key: DATABASE_POOL_MAX
+        value: "10"
+      - key: STORE_WRITE_INTERVAL_MS
+        value: "15000"

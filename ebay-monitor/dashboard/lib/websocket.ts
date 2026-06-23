@@ -3,7 +3,9 @@ import type { Message, Store, StoreLog } from './types';
 export type ServerEvent =
   | { type: 'INIT'; messages: Message[]; stores: Store[] }
   | { type: 'NEW_MESSAGE'; message?: Message; id: string; storeId: string; storeName: string; buyer: string; subject?: string; preview: string; unreadCount: number; timestamp: string }
+  | { type: 'MESSAGE_UPDATED'; message: Message }
   | { type: 'STORE_STATUS'; storeId: string; storeName: string; online: boolean; lastSeen: string }
+  | { type: 'STORE_DELETED'; storeId: string }
   | ({ type: 'STORE_LOG' } & StoreLog)
   | { type: 'SYNC_INBOX'; storeId: string; fingerprints: string[] }
   | { type: 'ERROR'; message: string };

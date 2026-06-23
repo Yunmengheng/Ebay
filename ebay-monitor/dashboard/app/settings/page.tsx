@@ -6,6 +6,10 @@ import { useRealtime } from '@/components/RealtimeProvider';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import type { Preferences } from '@/lib/types';
 
+function backendHttpUrl(wsUrl: string) {
+  return wsUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/$/, '');
+}
+
 function Toggle({
   label,
   checked,
@@ -100,20 +104,18 @@ export default function SettingsPage() {
 
         <div className="grid gap-3 md:grid-cols-2">
           <div className="rounded-md border border-border bg-background p-3">
-            <div className="text-xs uppercase tracking-normal text-muted">Supabase URL</div>
-            <div className="mt-2 break-all text-sm text-soft">{process.env.NEXT_PUBLIC_SUPABASE_URL}</div>
+            <div className="text-xs uppercase tracking-normal text-muted">Backend API URL</div>
+            <div className="mt-2 break-all text-sm text-soft">{backendHttpUrl(draft.wsUrl)}</div>
           </div>
           <div className="rounded-md border border-border bg-background p-3">
-            <div className="text-xs uppercase tracking-normal text-muted">Publishable key</div>
-            <div className="mt-2 break-all text-sm text-soft">
-              {process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY}
-            </div>
+            <div className="text-xs uppercase tracking-normal text-muted">Persistence</div>
+            <div className="mt-2 break-all text-sm text-soft">Neon Postgres via backend only</div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-muted">
-            WebSocket: {wsStatus} · Supabase: {supabaseStatus.replace('_', ' ')}
+            WebSocket: {wsStatus} · Database: {supabaseStatus.replace('_', ' ')}
             {supabaseError ? <span className="block pt-1 text-danger">{supabaseError}</span> : null}
           </div>
           <button

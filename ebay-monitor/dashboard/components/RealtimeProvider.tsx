@@ -1,7 +1,6 @@
 'use client';
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { supabase } from '@/lib/supabase';
 import { connectWebSocket, type ServerEvent } from '@/lib/websocket';
 import type { Message, NotificationItem, Preferences, Store, StoreLog, SystemLog, Toast } from '@/lib/types';
 
@@ -39,6 +38,10 @@ const NOTIFICATION_RECENCY_WINDOW_MS = 30 * 60 * 1000;
 const DASHBOARD_MESSAGE_LIMIT = 5000;
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null);
+
+function backendHttpUrl(wsUrl: string) {
+  return wsUrl.replace(/^wss:/, 'https:').replace(/^ws:/, 'http:').replace(/\/$/, '');
+}
 
 const normalizeMessage = (message: Message): Message => ({
   ...message,
@@ -271,30 +274,29 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const refreshData = useCallback(async () => {
-    addSystemLog('supabase', 'info', 'Fetching initial messages and stores from Supabase');
-    const [{ data: messageData, error: messageError }, { data: storeData, error: storeError }] = await Promise.all([
-      supabase
-        .from('messages')
-        .select('*, stores(name)')
-        .order('created_at', { ascending: false })
-        .limit(DASHBOARD_MESSAGE_LIMIT),
-      supabase.from('stores').select('*').order('last_seen', { ascending: false })
-    ]);
+    addSystemLog('database', 'info', 'Fetching initial messages and stores from backend database');
+    setSupabaseStatus('connecting');
 
-    const error = messageError || storeError;
-    if (error) {
-      const missingTable = error.code === '42P01' || error.message.toLowerCase().includes('could not find the table');
-      setSupabaseStatus(missingTable ? 'setup_required' : 'disconnected');
-      setSupabaseError(error.message);
-      addSystemLog('supabase', 'error', `Initial fetch failed: ${error.message}`);
+    try {
+      const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/init`);
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Initial fetch failed');
+      }
+
+      setSupabaseError(null);
+      setSupabaseStatus('connected');
+      setMessages((data.messages || []).map(normalizeMessage));
+      setStores((data.stores || []).slice().sort((a: Store, b: Store) => a.name.localeCompare(b.name)));
+      (data.messages || []).forEach((message: Message) => seenMessages.current.add(message.id));
+      addSystemLog('database', 'success', `Initial fetch completed: ${(data.messages || []).length} messages, ${(data.stores || []).length} stores`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Initial fetch failed';
+      setSupabaseStatus('disconnected');
+      setSupabaseError(message);
+      addSystemLog('database', 'error', `Initial fetch failed: ${message}`);
       return;
     }
-
-    setSupabaseError(null);
-    setMessages((messageData || []).map(normalizeMessage));
-    setStores((storeData || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
-    (messageData || []).forEach((message) => seenMessages.current.add(message.id));
-    addSystemLog('supabase', 'success', `Initial fetch completed: ${(messageData || []).length} messages, ${(storeData || []).length} stores`);
   }, [addSystemLog]);
 
   useEffect(() => {
@@ -307,6 +309,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         setMessages((event.messages || []).map(normalizeMessage));
         setStores((event.stores || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
         (event.messages || []).forEach((message) => seenMessages.current.add(message.id));
+        setSupabaseStatus('connected');
+        setSupabaseError(null);
       }
 
       if (event.type === 'NEW_MESSAGE') {
@@ -342,6 +346,15 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
           online: event.online,
           last_seen: event.lastSeen
         });
+      }
+
+      if (event.type === 'MESSAGE_UPDATED') {
+        mergeMessage(event.message);
+      }
+
+      if (event.type === 'STORE_DELETED') {
+        setStores((current) => current.filter((store) => store.id !== event.storeId));
+        setMessages((current) => current.filter((message) => message.store_id !== event.storeId));
       }
 
       if (event.type === 'STORE_LOG') {
@@ -386,83 +399,45 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     );
   }, [addStoreLog, addSystemLog, mergeMessage, mergeStore, preferences.wsUrl]);
 
-  useEffect(() => {
-    const messageChannel = supabase
-      .channel('dashboard-messages-sync')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'messages' },
-        (payload) => {
-          if (payload.eventType === 'DELETE') {
-            setMessages((current) => current.filter((message) => message.id !== payload.old.id));
-            return;
-          }
-          mergeMessage(payload.new as Message, payload.eventType === 'INSERT');
-        }
-      )
-      .subscribe((status) => {
-        addSystemLog('supabase', status === 'SUBSCRIBED' ? 'success' : 'info', `Messages realtime channel: ${status}`);
-        if (status === 'SUBSCRIBED') {
-          setSupabaseStatus('connected');
-          setSupabaseError(null);
-          return;
-        }
-
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          addSystemLog('supabase', 'error', `Messages realtime channel problem: ${status}`);
-          setSupabaseStatus((current) => (current === 'setup_required' ? current : 'disconnected'));
-          return;
-        }
-
-        // Only show "connecting" if we haven't successfully connected yet
-        setSupabaseStatus((current) =>
-          current === 'setup_required' || current === 'connected' ? current : 'connecting'
-        );
-      });
-
-    const storeChannel = supabase
-      .channel('dashboard-stores-sync')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'stores' }, (payload) => {
-        if (payload.eventType !== 'DELETE') mergeStore(payload.new as Store);
-      })
-      .subscribe((status) => {
-        addSystemLog('supabase', status === 'SUBSCRIBED' ? 'success' : 'info', `Stores realtime channel: ${status}`);
-        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          addSystemLog('supabase', 'error', `Stores realtime channel problem: ${status}`);
-        }
-      });
-
-    return () => {
-      addSystemLog('supabase', 'info', 'Removing Supabase realtime channels');
-      supabase.removeChannel(messageChannel);
-      supabase.removeChannel(storeChannel);
-    };
-  }, [addSystemLog, mergeMessage, mergeStore]);
-
   const updateMessageStatus = useCallback(async (id: string, status: Message['status']) => {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, status } : message)));
-    const { error } = await supabase.from('messages').update({ status }).eq('id', id);
-    if (error) {
+    const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ status })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       await refreshData();
-      throw error;
+      throw new Error(data.error || 'Failed to update message status');
     }
   }, [refreshData]);
 
   const updateMessageNote = useCallback(async (id: string, note: string) => {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, note } : message)));
-    const { error } = await supabase.from('messages').update({ note }).eq('id', id);
-    if (error) {
+    const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ note })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       await refreshData();
-      throw error;
+      throw new Error(data.error || 'Failed to update message note');
     }
   }, [refreshData]);
 
   const updateMessageUrgent = useCallback(async (id: string, urgent: boolean) => {
     setMessages((current) => current.map((message) => (message.id === id ? { ...message, urgent } : message)));
-    const { error } = await supabase.from('messages').update({ urgent }).eq('id', id);
-    if (error) {
+    const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/messages/${id}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ urgent })
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       await refreshData();
-      throw error;
+      throw new Error(data.error || 'Failed to update urgent flag');
     }
   }, [refreshData]);
 
@@ -470,11 +445,13 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     // Optimistically remove from UI immediately
     setStores((current) => current.filter((s) => s.id !== id));
     setMessages((current) => current.filter((m) => m.store_id !== id));
-    // Delete the store — messages cascade-delete via FK ON DELETE CASCADE
-    const { error } = await supabase.from('stores').delete().eq('id', id);
-    if (error) {
+    const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/stores/${id}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
       await refreshData();
-      throw error;
+      throw new Error(data.error || 'Failed to delete store');
     }
   }, [refreshData]);
 

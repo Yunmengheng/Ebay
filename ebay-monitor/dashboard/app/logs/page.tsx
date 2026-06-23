@@ -14,7 +14,7 @@ const levelStyles: Record<SystemLog['level'], string> = {
 
 const sourceStyles: Record<SystemLog['source'], string> = {
   websocket: 'text-purple-400',
-  supabase: 'text-cyan-400'
+  database: 'text-cyan-400'
 };
 
 const formatLogTime = (timestamp: string) => {
@@ -38,7 +38,7 @@ export default function LogsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">Connection logs</h1>
-          <p className="mt-1 text-sm text-muted">WebSocket and Supabase activity for diagnosing disconnects.</p>
+          <p className="mt-1 text-sm text-muted">WebSocket and database activity for diagnosing disconnects.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="inline-flex min-w-[130px] items-center justify-center gap-2 rounded-md border border-border px-2.5 py-1.5">
@@ -51,7 +51,7 @@ export default function LogsPage() {
                 supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
               }`}
             />
-            Supabase {supabaseStatus.replace('_', ' ')}
+            Database {supabaseStatus.replace('_', ' ')}
           </span>
         </div>
       </div>
@@ -68,7 +68,7 @@ export default function LogsPage() {
           </div>
         </div>
         <div className="rounded-card border border-border bg-surface p-4">
-          <div className="text-xs uppercase tracking-normal text-muted">Supabase status</div>
+          <div className="text-xs uppercase tracking-normal text-muted">Database status</div>
           <div className={`mt-2 text-xl font-semibold ${supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'}`}>
             {supabaseStatus.replace('_', ' ')}
           </div>
@@ -83,7 +83,7 @@ export default function LogsPage() {
             Live system log
           </div>
           <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1 text-xs">
-            {(['all', 'websocket', 'supabase'] as const).map((item) => (
+            {(['all', 'websocket', 'database'] as const).map((item) => (
               <button
                 key={item}
                 type="button"

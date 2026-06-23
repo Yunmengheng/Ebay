@@ -5,23 +5,15 @@ Production-ready local monitoring for multiple eBay inboxes without the eBay API
 The system has three parts:
 
 - `chrome-extension`: Manifest V3 extension loaded once per Chrome profile/store.
-- `backend`: Node.js WebSocket server that persists events to Supabase and broadcasts live updates.
-- `dashboard`: Next.js 14 App Router dashboard with WebSocket plus Supabase Realtime sync.
+- `backend`: Node.js WebSocket/HTTP server that persists events to Neon Postgres and broadcasts live updates.
+- `dashboard`: Next.js 14 App Router dashboard with backend WebSocket live updates.
 
-## 1. Supabase Setup
+## 1. Neon Setup
 
-Create a Supabase project, open the SQL editor, and run:
-
-```sql
--- See supabase/migrations/001_init.sql
-```
-
-The migration creates:
+Create a Neon project and copy the pooled Postgres connection string. The backend creates these tables automatically at startup:
 
 - `stores`
 - `messages`
-- Realtime publication entries
-- Local-dev permissive RLS policies
 
 ## 2. Environment
 
@@ -32,8 +24,6 @@ cd ebay-monitor/dashboard
 cp .env.local.example .env.local
 ```
 
-The included `.env.local` already uses the Supabase URL and publishable key you provided.
-
 Backend:
 
 ```bash
@@ -41,7 +31,11 @@ cd ebay-monitor/backend
 cp .env.example .env
 ```
 
-For production, set `SUPABASE_SERVICE_ROLE_KEY`. For local dev, the backend can use `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` because the provided migration allows all operations.
+Set `DATABASE_URL` in `backend/.env` to your Neon pooled connection string, for example:
+
+```bash
+DATABASE_URL=postgresql://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require
+```
 
 ## 3. Install
 
@@ -88,5 +82,4 @@ Repeat for each Chrome profile/store. Each profile receives a persisted UUID in 
 - Message detection uses `MutationObserver` plus a 5-second polling fallback.
 - Store heartbeat is sent every 30 seconds.
 - Duplicate messages are filtered by the unique `fingerprint` column.
-- Dashboard updates arrive through WebSocket first and Supabase Realtime as a sync fallback.
-
+- Dashboard updates arrive through the backend WebSocket. The dashboard does not subscribe to database realtime feeds.
