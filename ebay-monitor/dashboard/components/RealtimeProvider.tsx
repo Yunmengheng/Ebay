@@ -25,6 +25,7 @@ type RealtimeContextValue = {
   updateMessageUrgent: (id: string, urgent: boolean) => Promise<void>;
   deleteStore: (id: string) => Promise<void>;
   refreshData: () => Promise<void>;
+  testSoundAlert: () => Promise<boolean>;
 };
 
 const DEFAULT_PREFERENCES: Preferences = {
@@ -48,10 +49,13 @@ const normalizeMessage = (message: Message): Message => ({
   stores: message.stores || null
 });
 
-function playGeneratedChime() {
+async function playGeneratedChime() {
   const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-  if (!AudioContextClass) return;
+  if (!AudioContextClass) return false;
   const ctx = new AudioContextClass();
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
   const masterGain = ctx.createGain();
   masterGain.gain.setValueAtTime(0.0001, ctx.currentTime);
   masterGain.gain.exponentialRampToValueAtTime(0.42, ctx.currentTime + 0.025);
@@ -76,13 +80,19 @@ function playGeneratedChime() {
 
   playTone(1046.5, 0, 0.2);
   playTone(1568, 0.18, 0.32);
+  return true;
 }
 
-function playChime() {
+async function playChime() {
   const audio = new Audio('/sounds/new-message.mp3');
   audio.volume = 1;
   audio.currentTime = 0;
-  audio.play().catch(() => playGeneratedChime());
+  try {
+    await audio.play();
+    return true;
+  } catch {
+    return playGeneratedChime();
+  }
 }
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
@@ -209,7 +219,11 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       window.setTimeout(() => dismissToast(toast.id), 5000);
     }
 
-    if (prefs.soundAlerts) playChime();
+    if (prefs.soundAlerts) {
+      playChime().catch(() => {
+        console.warn('Sound alert was blocked by the browser. Click Test sound in Settings once to unlock audio.');
+      });
+    }
 
     if (prefs.desktopNotifications && 'Notification' in window && Notification.permission === 'granted') {
       new Notification(`New message from ${message.buyer}`, {
@@ -272,6 +286,16 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       ...current
     ].slice(0, 400));
   }, []);
+
+  const testSoundAlert = useCallback(async () => {
+    const ok = await playChime();
+    addSystemLog(
+      'websocket',
+      ok ? 'success' : 'warning',
+      ok ? 'Sound alert test played' : 'Sound alert test was blocked by the browser'
+    );
+    return ok;
+  }, [addSystemLog]);
 
   const refreshData = useCallback(async () => {
     addSystemLog('database', 'info', 'Fetching initial messages and stores from backend database');
@@ -476,7 +500,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       updateMessageNote,
       updateMessageUrgent,
       deleteStore,
-      refreshData
+      refreshData,
+      testSoundAlert
     }),
     [
       messages,
@@ -498,7 +523,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       updateMessageNote,
       updateMessageUrgent,
       deleteStore,
-      refreshData
+      refreshData,
+      testSoundAlert
     ]
   );
 

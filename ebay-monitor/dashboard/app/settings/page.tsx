@@ -38,8 +38,9 @@ function Toggle({
 }
 
 export default function SettingsPage() {
-  const { preferences, setPreferences, wsStatus, supabaseStatus, supabaseError } = useRealtime();
+  const { preferences, setPreferences, wsStatus, supabaseStatus, supabaseError, testSoundAlert } = useRealtime();
   const [draft, setDraft] = useState<Preferences>(preferences);
+  const [soundTestStatus, setSoundTestStatus] = useState<'idle' | 'played' | 'blocked'>('idle');
 
   useEffect(() => {
     setDraft(preferences);
@@ -54,6 +55,12 @@ export default function SettingsPage() {
       await Notification.requestPermission();
     }
     setPreferences(draft);
+  };
+
+  const testSound = async () => {
+    setSoundTestStatus('idle');
+    const ok = await testSoundAlert();
+    setSoundTestStatus(ok ? 'played' : 'blocked');
   };
 
   return (
@@ -90,6 +97,27 @@ export default function SettingsPage() {
           checked={draft.soundAlerts}
           onChange={(soundAlerts) => update({ soundAlerts })}
         />
+      </section>
+
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-border bg-surface p-4">
+        <div>
+          <div className="text-sm font-semibold text-foreground">Notification sound</div>
+          <p className="mt-1 text-xs text-muted">
+            Click once after opening the dashboard to let the browser play future message sounds.
+          </p>
+          {soundTestStatus === 'played' && <p className="mt-2 text-xs text-success">Sound test played.</p>}
+          {soundTestStatus === 'blocked' && (
+            <p className="mt-2 text-xs text-danger">Browser blocked the sound. Check site sound permissions and try again.</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={testSound}
+          className="inline-flex h-10 items-center gap-2 rounded-md border border-border bg-background px-4 text-sm font-semibold text-foreground transition hover:border-accent hover:text-accent"
+        >
+          <Volume2 className="h-4 w-4" />
+          Test sound
+        </button>
       </section>
 
       <section className="grid gap-4 rounded-card border border-border bg-surface p-4">
