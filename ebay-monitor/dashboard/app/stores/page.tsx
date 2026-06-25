@@ -47,7 +47,7 @@ function DeleteConfirmModal({
           <div className="flex items-start gap-3 rounded-xl border border-yellow-500/20 bg-yellow-500/5 px-4 py-3">
             <AlertTriangle className="h-4 w-4 text-yellow-400 shrink-0 mt-0.5" />
             <p className="text-sm text-yellow-200/80">
-              This action <span className="font-semibold text-yellow-300">cannot be undone</span>. All data for this store will be permanently deleted from the database.
+              This action <span className="font-semibold text-yellow-300">cannot be undone</span>. All live data for this store will be removed from the backend.
             </p>
           </div>
 

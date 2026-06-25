@@ -14,8 +14,8 @@ type RealtimeContextValue = {
   toasts: Toast[];
   preferences: Preferences;
   wsStatus: 'connected' | 'connecting' | 'disconnected';
-  supabaseStatus: 'connected' | 'connecting' | 'disconnected' | 'setup_required';
-  supabaseError: string | null;
+  backendStatus: 'connected' | 'connecting' | 'disconnected';
+  backendError: string | null;
   setPreferences: (preferences: Preferences) => void;
   dismissToast: (id: string) => void;
   markNotificationsSeen: () => void;
@@ -104,9 +104,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const [unseenNotifications, setUnseenNotifications] = useState(0);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const [wsStatus, setWsStatus] = useState<'connected' | 'connecting' | 'disconnected'>('disconnected');
-  const [supabaseStatus, setSupabaseStatus] =
-    useState<'connected' | 'connecting' | 'disconnected' | 'setup_required'>('connecting');
-  const [supabaseError, setSupabaseError] = useState<string | null>(null);
+  const [backendStatus, setBackendStatus] = useState<'connected' | 'connecting' | 'disconnected'>('connecting');
+  const [backendError, setBackendError] = useState<string | null>(null);
   const [preferences, setPreferencesState] = useState<Preferences>(DEFAULT_PREFERENCES);
   const seenMessages = useRef(new Set<string>());
   const preferencesRef = useRef(preferences);
@@ -298,8 +297,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   }, [addSystemLog]);
 
   const refreshData = useCallback(async () => {
-    addSystemLog('database', 'info', 'Fetching initial messages and stores from backend database');
-    setSupabaseStatus('connecting');
+    addSystemLog('backend', 'info', 'Fetching initial messages and stores from backend memory');
+    setBackendStatus('connecting');
 
     try {
       const response = await fetch(`${backendHttpUrl(preferencesRef.current.wsUrl)}/init`);
@@ -308,17 +307,17 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         throw new Error(data.error || 'Initial fetch failed');
       }
 
-      setSupabaseError(null);
-      setSupabaseStatus('connected');
+      setBackendError(null);
+      setBackendStatus('connected');
       setMessages((data.messages || []).map(normalizeMessage));
       setStores((data.stores || []).slice().sort((a: Store, b: Store) => a.name.localeCompare(b.name)));
       (data.messages || []).forEach((message: Message) => seenMessages.current.add(message.id));
-      addSystemLog('database', 'success', `Initial fetch completed: ${(data.messages || []).length} messages, ${(data.stores || []).length} stores`);
+      addSystemLog('backend', 'success', `Initial fetch completed: ${(data.messages || []).length} messages, ${(data.stores || []).length} stores`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Initial fetch failed';
-      setSupabaseStatus('disconnected');
-      setSupabaseError(message);
-      addSystemLog('database', 'error', `Initial fetch failed: ${message}`);
+      setBackendStatus('disconnected');
+      setBackendError(message);
+      addSystemLog('backend', 'error', `Initial fetch failed: ${message}`);
       return;
     }
   }, [addSystemLog]);
@@ -333,8 +332,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         setMessages((event.messages || []).map(normalizeMessage));
         setStores((event.stores || []).slice().sort((a, b) => a.name.localeCompare(b.name)));
         (event.messages || []).forEach((message) => seenMessages.current.add(message.id));
-        setSupabaseStatus('connected');
-        setSupabaseError(null);
+        setBackendStatus('connected');
+        setBackendError(null);
       }
 
       if (event.type === 'NEW_MESSAGE') {
@@ -490,8 +489,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       toasts,
       preferences,
       wsStatus,
-      supabaseStatus,
-      supabaseError,
+      backendStatus,
+      backendError,
       setPreferences,
       dismissToast,
       markNotificationsSeen,
@@ -513,8 +512,8 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
       toasts,
       preferences,
       wsStatus,
-      supabaseStatus,
-      supabaseError,
+      backendStatus,
+      backendError,
       setPreferences,
       dismissToast,
       markNotificationsSeen,

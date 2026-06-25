@@ -14,7 +14,7 @@ const levelStyles: Record<SystemLog['level'], string> = {
 
 const sourceStyles: Record<SystemLog['source'], string> = {
   websocket: 'text-purple-400',
-  database: 'text-cyan-400'
+  backend: 'text-cyan-400'
 };
 
 const formatLogTime = (timestamp: string) => {
@@ -25,7 +25,7 @@ const formatLogTime = (timestamp: string) => {
 };
 
 export default function LogsPage() {
-  const { systemLogs, wsStatus, supabaseStatus, supabaseError, preferences } = useRealtime();
+  const { systemLogs, wsStatus, backendStatus, backendError, preferences } = useRealtime();
   const [source, setSource] = useState<'all' | SystemLog['source']>('all');
 
   const filteredLogs = useMemo(
@@ -38,7 +38,7 @@ export default function LogsPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">Connection logs</h1>
-          <p className="mt-1 text-sm text-muted">WebSocket and database activity for diagnosing disconnects.</p>
+          <p className="mt-1 text-sm text-muted">WebSocket and backend activity for diagnosing disconnects.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="inline-flex min-w-[130px] items-center justify-center gap-2 rounded-md border border-border px-2.5 py-1.5">
@@ -48,10 +48,10 @@ export default function LogsPage() {
           <span className="inline-flex min-w-[180px] items-center justify-center gap-2 rounded-md border border-border px-2.5 py-1.5">
             <Circle
               className={`h-2.5 w-2.5 shrink-0 fill-current ${
-                supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
+                backendStatus === 'connected' ? 'text-success' : backendStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
               }`}
             />
-            Database {supabaseStatus.replace('_', ' ')}
+            Backend {backendStatus.replace('_', ' ')}
           </span>
         </div>
       </div>
@@ -68,11 +68,11 @@ export default function LogsPage() {
           </div>
         </div>
         <div className="rounded-card border border-border bg-surface p-4">
-          <div className="text-xs uppercase tracking-normal text-muted">Database status</div>
-          <div className={`mt-2 text-xl font-semibold ${supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'}`}>
-            {supabaseStatus.replace('_', ' ')}
+          <div className="text-xs uppercase tracking-normal text-muted">Backend status</div>
+          <div className={`mt-2 text-xl font-semibold ${backendStatus === 'connected' ? 'text-success' : backendStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'}`}>
+            {backendStatus.replace('_', ' ')}
           </div>
-          {supabaseError && <div className="mt-2 line-clamp-2 text-xs text-danger">{supabaseError}</div>}
+          {backendError && <div className="mt-2 line-clamp-2 text-xs text-danger">{backendError}</div>}
         </div>
       </section>
 
@@ -83,7 +83,7 @@ export default function LogsPage() {
             Live system log
           </div>
           <div className="flex items-center gap-1 rounded-md border border-border bg-surface p-1 text-xs">
-            {(['all', 'websocket', 'database'] as const).map((item) => (
+            {(['all', 'websocket', 'backend'] as const).map((item) => (
               <button
                 key={item}
                 type="button"

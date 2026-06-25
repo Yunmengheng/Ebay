@@ -1,21 +1,14 @@
 # eBay Message Monitor Pro
 
-Production-ready local monitoring for multiple eBay inboxes without the eBay API.
+Local live monitoring for multiple eBay inboxes without the eBay API or a database.
 
 The system has three parts:
 
 - `chrome-extension`: Manifest V3 extension loaded once per Chrome profile/store.
-- `backend`: Node.js WebSocket/HTTP server that persists events to Neon Postgres and broadcasts live updates.
+- `backend`: Node.js WebSocket/HTTP server that keeps live stores/messages in memory and broadcasts updates.
 - `dashboard`: Next.js 14 App Router dashboard with backend WebSocket live updates.
 
-## 1. Neon Setup
-
-Create a Neon project and copy the pooled Postgres connection string. The backend creates these tables automatically at startup:
-
-- `stores`
-- `messages`
-
-## 2. Environment
+## 1. Environment
 
 Dashboard:
 
@@ -31,13 +24,9 @@ cd ebay-monitor/backend
 cp .env.example .env
 ```
 
-Set `DATABASE_URL` in `backend/.env` to your Neon pooled connection string, for example:
+The backend does not need `DATABASE_URL`, Supabase keys, or Neon settings. Data is live-only and clears when the backend restarts.
 
-```bash
-DATABASE_URL=postgresql://USER:PASSWORD@HOST.neon.tech/DB?sslmode=require
-```
-
-## 3. Install
+## 2. Install
 
 ```bash
 cd ebay-monitor/dashboard
@@ -47,25 +36,29 @@ cd ../backend
 npm install
 ```
 
-## 4. Run Locally
+You can also run `npm install` from the `ebay-monitor` root because the project uses npm workspaces.
 
-Terminal 1:
+## 3. Run Locally
+
+From the `ebay-monitor` root:
+
+```bash
+npm run dev
+```
+
+Or run the services separately:
 
 ```bash
 cd ebay-monitor/backend
 npm run dev
-```
 
-Terminal 2:
-
-```bash
-cd ebay-monitor/dashboard
+cd ../dashboard
 npm run dev
 ```
 
 Open `http://localhost:3000/dashboard`.
 
-## 5. Load the Chrome Extension
+## 4. Load the Chrome Extension
 
 1. Open Chrome with the profile for one eBay store.
 2. Go to `chrome://extensions`.
@@ -79,7 +72,9 @@ Repeat for each Chrome profile/store. Each profile receives a persisted UUID in 
 ## Notes
 
 - This project does not use the eBay API.
+- This project does not store messages in Supabase, Neon, MongoDB, or any other database.
 - Message detection uses `MutationObserver` plus a 5-second polling fallback.
 - Store heartbeat is sent every 30 seconds.
-- Duplicate messages are filtered by the unique `fingerprint` column.
-- Dashboard updates arrive through the backend WebSocket. The dashboard does not subscribe to database realtime feeds.
+- Duplicate messages are filtered in backend memory by message fingerprint.
+- Read/unread, urgent, note, and delete actions are shared through the backend while it is running.
+- Restarting the backend clears the live message/store history.

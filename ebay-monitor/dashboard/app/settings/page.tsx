@@ -38,7 +38,7 @@ function Toggle({
 }
 
 export default function SettingsPage() {
-  const { preferences, setPreferences, wsStatus, supabaseStatus, supabaseError, testSoundAlert } = useRealtime();
+  const { preferences, setPreferences, wsStatus, backendStatus, backendError, testSoundAlert } = useRealtime();
   const [draft, setDraft] = useState<Preferences>(preferences);
   const [soundTestStatus, setSoundTestStatus] = useState<'idle' | 'played' | 'blocked'>('idle');
 
@@ -137,14 +137,14 @@ export default function SettingsPage() {
           </div>
           <div className="rounded-md border border-border bg-background p-3">
             <div className="text-xs uppercase tracking-normal text-muted">Persistence</div>
-            <div className="mt-2 break-all text-sm text-soft">Neon Postgres via backend only</div>
+            <div className="mt-2 break-all text-sm text-soft">Live backend memory only</div>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="text-sm text-muted">
-            WebSocket: {wsStatus} · Database: {supabaseStatus.replace('_', ' ')}
-            {supabaseError ? <span className="block pt-1 text-danger">{supabaseError}</span> : null}
+            WebSocket: {wsStatus} · Backend: {backendStatus.replace('_', ' ')}
+            {backendError ? <span className="block pt-1 text-danger">{backendError}</span> : null}
           </div>
           <button
             onClick={save}

@@ -12,7 +12,7 @@ import { useRealtime } from '@/components/RealtimeProvider';
 import type { Message } from '@/lib/types';
 
 function DashboardContent() {
-  const { messages, stores, storeLogs, wsStatus, supabaseStatus, supabaseError } = useRealtime();
+  const { messages, stores, storeLogs, wsStatus, backendStatus } = useRealtime();
   const router = useRouter();
   const searchParams = useSearchParams();
   const [storeId, setStoreId] = useState('all');
@@ -67,7 +67,7 @@ function DashboardContent() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-semibold tracking-normal text-foreground">Live inbox feed</h1>
-          <p className="mt-1 text-sm text-muted">WebSocket live updates with backend database persistence.</p>
+          <p className="mt-1 text-sm text-muted">WebSocket live updates held in backend memory.</p>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-muted">
           <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 min-w-[130px] justify-center">
@@ -77,10 +77,10 @@ function DashboardContent() {
           <span className="inline-flex items-center gap-2 rounded-md border border-border px-2.5 py-1.5 min-w-[180px] justify-center">
             <Circle
               className={`h-2.5 w-2.5 fill-current shrink-0 ${
-                supabaseStatus === 'connected' ? 'text-success' : supabaseStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
+                backendStatus === 'connected' ? 'text-success' : backendStatus === 'connecting' ? 'text-yellow-400' : 'text-danger'
               }`}
             />
-            Database {supabaseStatus.replace('_', ' ')}
+            Backend {backendStatus.replace('_', ' ')}
           </span>
         </div>
       </div>

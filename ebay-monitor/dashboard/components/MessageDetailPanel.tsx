@@ -33,13 +33,13 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    const databaseNote = message.note || '';
+    const backendNote = message.note || '';
     const localNote = localStorage.getItem(`note-${message.fingerprint}`) || '';
-    const nextNote = databaseNote || localNote;
+    const nextNote = backendNote || localNote;
     setNote(nextNote);
     setNoteStatus('idle');
 
-    if (!databaseNote && localNote) {
+    if (!backendNote && localNote) {
       updateMessageNote(message.id, localNote)
         .then(() => {
           localStorage.removeItem(`note-${message.fingerprint}`);
@@ -234,7 +234,7 @@ export function MessageDetailPanel({ message, store, onClose }: Props) {
               className="flex-1 min-h-[200px] md:min-h-0 resize-none rounded-xl border border-border/60 bg-surface/70 px-3.5 py-3 text-sm text-soft placeholder:text-muted/70 outline-none focus:border-accent/60 focus:ring-1 focus:ring-accent/30 transition-all leading-relaxed"
             />
             <p className="text-[10px] text-muted">
-              Notes are saved to the database so everyone can see them.
+              Notes are shared through the backend while it is running.
             </p>
           </div>
 

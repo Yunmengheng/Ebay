@@ -92,7 +92,7 @@ async function renameStore(storeName) {
   currentStore = { storeId, storeName: cleanName };
   await setStorage(currentStore);
   // Send both REGISTER_EXTENSION and HEARTBEAT so the backend upserts
-  // the new name into Supabase immediately (which updates the dashboard).
+  // the new name to the backend immediately (which updates the dashboard).
   sendSocket({ type: 'REGISTER_EXTENSION', ...currentStore, timestamp: Date.now() });
   sendSocket({ type: 'HEARTBEAT', ...currentStore, timestamp: Date.now() });
   return currentStore;
@@ -341,7 +341,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
       }
 
-      // Always send the message event to the backend so it can upsert/synchronize the database.
+      // Always send the message event to the backend so it can refresh the live dashboard state.
       // The backend is idempotent and will only perform updates/broadcasts if values actually changed.
       sendSocket(event);
 
